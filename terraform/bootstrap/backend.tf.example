@@ -1,0 +1,11 @@
+# Copy to backend.tf to keep the state in S3 (state locking through an S3 lock file, no DynamoDB).
+# The state bucket must already exist (versioning recommended); it is not managed by this stack.
+terraform {
+  backend "s3" {
+    bucket       = "<state-bucket>"
+    key          = "dynamo-sample/bootstrap.tfstate"
+    region       = "<aws_region>"
+    encrypt      = true
+    use_lockfile = true
+  }
+}

@@ -1,0 +1,24 @@
+# T-dis-hic (S6/S7): T-dis + HiCache L2 400 GB/engine + L3 NIXL POSIX (buffered) on the 4 PREFILL pods only
+# (/mnt/.ephemeral/hicache-l3/qwen38-matrix/s-dis-hic, wiped by the matrix driver before each run); the decode never runs HiCache.
+# hicache-prefill is listed before pd-efa: the flags and env keep the recorded order (core, HiCache, PD).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: s-dis-hic
+resources:
+  - ../../dis
+components:
+  - ../../components/hicache-prefill
+  - ../../components/pd-efa
+patches:
+  - target:
+      group: nvidia.com
+      version: v1beta1
+      kind: DynamoGraphDeployment
+      name: q38
+    patch: |-
+      - op: test
+        path: /spec/components/1/podTemplate/spec/volumes/3/name
+        value: hicache-l3
+      - op: replace
+        path: /spec/components/1/podTemplate/spec/volumes/3/hostPath/path
+        value: /mnt/.ephemeral/hicache-l3/qwen38-matrix/s-dis-hic

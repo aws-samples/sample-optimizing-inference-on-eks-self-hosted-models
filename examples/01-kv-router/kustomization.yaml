@@ -1,0 +1,6 @@
+# examples/01-kv-router = Track Q cell S1 (aggregated, KV router, no HiCache).
+# Read-only view: manifests/track-q-qwen38/cells/S1 is the source of truth. Render with scripts/render-examples.sh.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../manifests/track-q-qwen38/cells/S1

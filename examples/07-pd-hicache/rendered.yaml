@@ -1,0 +1,597 @@
+apiVersion: nvidia.com/v1beta1
+kind: DynamoGraphDeployment
+metadata:
+  labels:
+    app.kubernetes.io/name: q38
+    app.kubernetes.io/part-of: qwen38-matrix
+  name: q38
+  namespace: s-dis-hic
+spec:
+  backendFramework: sglang
+  components:
+  - name: Frontend
+    podTemplate:
+      metadata:
+        annotations:
+          karpenter.sh/do-not-disrupt: "true"
+        labels:
+          app.kubernetes.io/part-of: qwen38-matrix
+      spec:
+        containers:
+        - args:
+          - -m
+          - dynamo.frontend
+          - --http-host
+          - 0.0.0.0
+          - --http-port
+          - "8000"
+          command:
+          - python3
+          env:
+          - name: HF_HUB_OFFLINE
+            value: "1"
+          - name: TRANSFORMERS_OFFLINE
+            value: "1"
+          - name: DYN_ROUTER_MODE
+            value: round-robin
+          image: nvcr.io/nvidia/ai-dynamo/sglang-runtime:1.6.0-efa@sha256:d574951b0dbd037bdcaabe121431a83cd047a5c106cb243fe6f2f97f2e456cd2
+          imagePullPolicy: IfNotPresent
+          name: main
+          ports:
+          - containerPort: 8000
+            name: http
+          resources:
+            limits:
+              memory: 16Gi
+            requests:
+              cpu: "8"
+              memory: 16Gi
+        nodeSelector:
+          karpenter.sh/nodepool: gpu-b200-cb
+        tolerations:
+        - effect: NoSchedule
+          key: nvidia.com/gpu
+          operator: Exists
+    replicas: 1
+    runtimeVersionOverride: 1.6.0
+    type: frontend
+  - name: prefill
+    podTemplate:
+      metadata:
+        annotations:
+          karpenter.sh/do-not-disrupt: "true"
+        labels:
+          app.kubernetes.io/part-of: qwen38-matrix
+      spec:
+        containers:
+        - args:
+          - |
+            set -euo pipefail
+            ulimit -l unlimited || true
+            ulimit -n 1048576 || true
+            # GPU pin: privileged (EFA) sees every host GPU, so CUDA would take GPU 0 (another pod's). Pin it,
+            # by UUID in ascending NVML index order, to the GPUs the device plugin allocated
+            # (NVIDIA_VISIBLE_DEVICES: a directory of index entries, or a comma list of indices).
+            # EXPECTED_GPUS is this container's nvidia.com/gpu limit.
+            gpu_pin_fatal() { echo "FATAL: GPU pin: $*" >&2; exit 1; }
+            nvd="${NVIDIA_VISIBLE_DEVICES:-}"
+            ids=""
+            if [ -d "$nvd" ]; then
+              for entry in "$nvd"/*; do
+                if [ -e "$entry" ]; then ids="$ids ${entry##*/}"; fi
+              done
+            else
+              case "$nvd" in
+                "" | all | void | none) gpu_pin_fatal "NVIDIA_VISIBLE_DEVICES='$nvd' is not a per-container allocation" ;;
+                *[!0-9,]*) gpu_pin_fatal "NVIDIA_VISIBLE_DEVICES='$nvd' is neither a device directory nor a list of GPU indices" ;;
+              esac
+              ids="$(printf '%s' "$nvd" | tr ',' ' ')"
+            fi
+            for id in $ids; do
+              case "$id" in
+                *[!0-9]*) gpu_pin_fatal "unexpected device entry '$id' in NVIDIA_VISIBLE_DEVICES='$nvd'" ;;
+              esac
+            done
+            sorted=""
+            count=0
+            for id in $(printf '%s\n' $ids | sort -n -u); do
+              sorted="$sorted $id"
+              count=$((count + 1))
+            done
+            [ "$count" -gt 0 ] || gpu_pin_fatal "no allocated GPU in NVIDIA_VISIBLE_DEVICES='$nvd'"
+            want="${EXPECTED_GPUS:-}"
+            case "$want" in
+              "" | *[!0-9]*) gpu_pin_fatal "EXPECTED_GPUS='$want' must be the container's nvidia.com/gpu limit" ;;
+            esac
+            [ "$count" -eq "$want" ] || gpu_pin_fatal "$count GPU(s) allocated (NVIDIA_VISIBLE_DEVICES='$nvd'), limit is $want"
+            smi="$(nvidia-smi --query-gpu=index,uuid --format=csv,noheader)" || gpu_pin_fatal "nvidia-smi --query-gpu=index,uuid failed"
+            cvd=""
+            for id in $sorted; do
+              uuid=""
+              while IFS=', ' read -r smi_index smi_uuid; do
+                if [ "$smi_index" = "$id" ]; then
+                  uuid="$smi_uuid"
+                  break
+                fi
+              done <<<"$smi"
+              [ -n "$uuid" ] || gpu_pin_fatal "GPU index $id has no UUID in nvidia-smi output"
+              cvd="${cvd:+$cvd,}$uuid"
+            done
+            export CUDA_VISIBLE_DEVICES="$cvd"
+            echo "GPU pin: indices${sorted} -> CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES" >&2
+            exec python3 -m dynamo.sglang "$@"
+          - dynamo.sglang
+          - --model-path
+          - Qwen/Qwen3.8-27B-FP8
+          - --revision
+          - 017b9c7af6b5689d5dd426a76e0bc077eb5ca20a
+          - --served-model-name
+          - Qwen/Qwen3.8-27B-FP8
+          - --tp-size
+          - "1"
+          - --page-size
+          - "64"
+          - --kv-cache-dtype
+          - fp8_e4m3
+          - --mem-fraction-static
+          - "0.85"
+          - --context-length
+          - "131072"
+          - --attention-backend
+          - trtllm_mha
+          - --mamba-radix-cache-strategy
+          - extra_buffer
+          - --enable-metrics
+          - --kv-events-config
+          - '{"publisher":"zmq","topic":"kv-events","endpoint":"tcp://*:5557"}'
+          - --host
+          - 0.0.0.0
+          - --engine-route
+          - flush_cache:tm
+          - --enable-hierarchical-cache
+          - --hicache-size
+          - "400"
+          - --hicache-mem-layout
+          - page_first
+          - --hicache-io-backend
+          - kernel
+          - --hicache-write-policy
+          - write_through
+          - --hicache-storage-backend
+          - nixl
+          - --hicache-storage-prefetch-policy
+          - timeout
+          - --engine-route
+          - clear_hicache_storage:tm
+          - --disaggregation-mode
+          - prefill
+          - --disaggregation-transfer-backend
+          - nixl
+          - --disaggregation-bootstrap-port
+          - "12345"
+          command:
+          - /bin/bash
+          - -c
+          env:
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+          - name: HF_HUB_CACHE
+            value: /models/hub
+          - name: HF_HOME
+            value: /compile-cache/hf-home
+          - name: HF_HUB_OFFLINE
+            value: "1"
+          - name: TRANSFORMERS_OFFLINE
+            value: "1"
+          - name: DYN_FORWARDPASS_METRIC_PORT
+            value: ""
+          - name: DYN_SGL_ALLOW_TOP_LOGPROBS
+            value: "1"
+          - name: XDG_CACHE_HOME
+            value: /compile-cache/xdg
+          - name: TRITON_CACHE_DIR
+            value: /compile-cache/triton
+          - name: TORCHINDUCTOR_CACHE_DIR
+            value: /compile-cache/inductor
+          - name: FLASHINFER_WORKSPACE_BASE
+            value: /compile-cache/flashinfer
+          - name: SGLANG_CACHE_DIR
+            value: /compile-cache/sglang
+          - name: SGLANG_HICACHE_NIXL_BACKEND_PLUGIN
+            value: POSIX
+          - name: SGLANG_HICACHE_NIXL_USE_DIRECT_IO
+            value: "0"
+          - name: SGLANG_HICACHE_NIXL_BACKEND_STORAGE_DIR
+            value: /kvcache/l3
+          - name: SGLANG_DISAGGREGATION_NIXL_BACKEND
+            value: LIBFABRIC
+          - name: FI_PROVIDER
+            value: efa
+          - name: FI_EFA_USE_DEVICE_RDMA
+            value: "1"
+          - name: FI_EFA_ENABLE_SHM_TRANSFER
+            value: "0"
+          - name: FI_EFA_ENABLE_SHM
+            value: "0"
+          - name: LD_LIBRARY_PATH
+            value: /opt/amazon/efa/lib:/opt/dynamo/nixl-ucx-compat:/opt/dynamo/nixl-capi:/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/cuda/lib64
+          - name: EXPECTED_GPUS
+            value: "1"
+          image: nvcr.io/nvidia/ai-dynamo/sglang-runtime:1.6.0-efa@sha256:d574951b0dbd037bdcaabe121431a83cd047a5c106cb243fe6f2f97f2e456cd2
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            failureThreshold: 60
+            httpGet:
+              path: /live
+              port: system
+            periodSeconds: 5
+            timeoutSeconds: 4
+          name: main
+          ports:
+          - containerPort: 9090
+            name: system
+          resources:
+            limits:
+              memory: 410Gi
+              nvidia.com/gpu: "1"
+              vpc.amazonaws.com/efa: "1"
+            requests:
+              cpu: "16"
+              memory: 386Gi
+              nvidia.com/gpu: "1"
+              vpc.amazonaws.com/efa: "1"
+          securityContext:
+            capabilities:
+              add:
+              - IPC_LOCK
+              - SYS_RESOURCE
+            privileged: true
+            runAsGroup: 0
+            runAsUser: 0
+          startupProbe:
+            failureThreshold: 240
+            httpGet:
+              path: /live
+              port: system
+            periodSeconds: 10
+            timeoutSeconds: 5
+          volumeMounts:
+          - mountPath: /models
+            name: models
+            readOnly: true
+          - mountPath: /compile-cache
+            name: compile-cache
+          - mountPath: /kvcache/l3
+            name: hicache-l3
+            subPathExpr: $(POD_NAME)
+          workingDir: /workspace
+        initContainers:
+        - args:
+          - |
+            set -euo pipefail
+            root=/mnt/.ephemeral
+            marker="$root/models/hub/models--Qwen--Qwen3.8-27B-FP8/.done"
+            dev=$(df -P "$root" | awk 'NR==2 {print $1}')
+            size_gib=$(( $(df -Pk "$root" | awk 'NR==2 {print $2}') / 1048576 ))
+            echo "ephemeral device=$dev size=${size_gib}GiB"
+            if [ "$size_gib" -lt "$EPHEMERAL_MIN_GIB" ]; then
+              echo "FATAL: $root (${size_gib}GiB) is not the instance store" >&2
+              exit 1
+            fi
+            deadline=$(( $(date +%s) + WEIGHTS_WAIT_TIMEOUT_S ))
+            until grep -qx "revision=$MODEL_REVISION" "$marker" 2>/dev/null; do
+              if [ "$(date +%s)" -ge "$deadline" ]; then
+                echo "FATAL: no marker $marker for revision $MODEL_REVISION after ${WEIGHTS_WAIT_TIMEOUT_S}s" >&2
+                exit 1
+              fi
+              echo "waiting for $marker"
+              sleep 15
+            done
+            echo "weights ready: $(tr '\n' ' ' < "$marker")"
+          command:
+          - /bin/bash
+          - -c
+          env:
+          - name: MODEL_REVISION
+            value: 017b9c7af6b5689d5dd426a76e0bc077eb5ca20a
+          - name: EPHEMERAL_MIN_GIB
+            value: "10000"
+          - name: WEIGHTS_WAIT_TIMEOUT_S
+            value: "1800"
+          image: nvcr.io/nvidia/ai-dynamo/sglang-runtime:1.6.0-efa@sha256:d574951b0dbd037bdcaabe121431a83cd047a5c106cb243fe6f2f97f2e456cd2
+          imagePullPolicy: IfNotPresent
+          name: weights-gate
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            runAsGroup: 0
+            runAsUser: 0
+          volumeMounts:
+          - mountPath: /mnt/.ephemeral
+            name: ephemeral
+            readOnly: true
+        nodeSelector:
+          karpenter.sh/nodepool: gpu-b200-cb
+        tolerations:
+        - effect: NoSchedule
+          key: nvidia.com/gpu
+          operator: Exists
+        volumes:
+        - hostPath:
+            path: /mnt/.ephemeral/models
+            type: Directory
+          name: models
+        - hostPath:
+            path: /mnt/.ephemeral
+            type: Directory
+          name: ephemeral
+        - emptyDir: {}
+          name: compile-cache
+        - hostPath:
+            path: /mnt/.ephemeral/hicache-l3/qwen38-matrix/s-dis-hic
+            type: DirectoryOrCreate
+          name: hicache-l3
+    replicas: 4
+    runtimeVersionOverride: 1.6.0
+    sharedMemorySize: 16Gi
+    type: prefill
+  - name: decode
+    podTemplate:
+      metadata:
+        annotations:
+          karpenter.sh/do-not-disrupt: "true"
+        labels:
+          app.kubernetes.io/part-of: qwen38-matrix
+      spec:
+        containers:
+        - args:
+          - |
+            set -euo pipefail
+            ulimit -l unlimited || true
+            ulimit -n 1048576 || true
+            # GPU pin: privileged (EFA) sees every host GPU, so CUDA would take GPU 0 (another pod's). Pin it,
+            # by UUID in ascending NVML index order, to the GPUs the device plugin allocated
+            # (NVIDIA_VISIBLE_DEVICES: a directory of index entries, or a comma list of indices).
+            # EXPECTED_GPUS is this container's nvidia.com/gpu limit.
+            gpu_pin_fatal() { echo "FATAL: GPU pin: $*" >&2; exit 1; }
+            nvd="${NVIDIA_VISIBLE_DEVICES:-}"
+            ids=""
+            if [ -d "$nvd" ]; then
+              for entry in "$nvd"/*; do
+                if [ -e "$entry" ]; then ids="$ids ${entry##*/}"; fi
+              done
+            else
+              case "$nvd" in
+                "" | all | void | none) gpu_pin_fatal "NVIDIA_VISIBLE_DEVICES='$nvd' is not a per-container allocation" ;;
+                *[!0-9,]*) gpu_pin_fatal "NVIDIA_VISIBLE_DEVICES='$nvd' is neither a device directory nor a list of GPU indices" ;;
+              esac
+              ids="$(printf '%s' "$nvd" | tr ',' ' ')"
+            fi
+            for id in $ids; do
+              case "$id" in
+                *[!0-9]*) gpu_pin_fatal "unexpected device entry '$id' in NVIDIA_VISIBLE_DEVICES='$nvd'" ;;
+              esac
+            done
+            sorted=""
+            count=0
+            for id in $(printf '%s\n' $ids | sort -n -u); do
+              sorted="$sorted $id"
+              count=$((count + 1))
+            done
+            [ "$count" -gt 0 ] || gpu_pin_fatal "no allocated GPU in NVIDIA_VISIBLE_DEVICES='$nvd'"
+            want="${EXPECTED_GPUS:-}"
+            case "$want" in
+              "" | *[!0-9]*) gpu_pin_fatal "EXPECTED_GPUS='$want' must be the container's nvidia.com/gpu limit" ;;
+            esac
+            [ "$count" -eq "$want" ] || gpu_pin_fatal "$count GPU(s) allocated (NVIDIA_VISIBLE_DEVICES='$nvd'), limit is $want"
+            smi="$(nvidia-smi --query-gpu=index,uuid --format=csv,noheader)" || gpu_pin_fatal "nvidia-smi --query-gpu=index,uuid failed"
+            cvd=""
+            for id in $sorted; do
+              uuid=""
+              while IFS=', ' read -r smi_index smi_uuid; do
+                if [ "$smi_index" = "$id" ]; then
+                  uuid="$smi_uuid"
+                  break
+                fi
+              done <<<"$smi"
+              [ -n "$uuid" ] || gpu_pin_fatal "GPU index $id has no UUID in nvidia-smi output"
+              cvd="${cvd:+$cvd,}$uuid"
+            done
+            export CUDA_VISIBLE_DEVICES="$cvd"
+            echo "GPU pin: indices${sorted} -> CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES" >&2
+            exec python3 -m dynamo.sglang "$@"
+          - dynamo.sglang
+          - --model-path
+          - Qwen/Qwen3.8-27B-FP8
+          - --revision
+          - 017b9c7af6b5689d5dd426a76e0bc077eb5ca20a
+          - --served-model-name
+          - Qwen/Qwen3.8-27B-FP8
+          - --tp-size
+          - "1"
+          - --page-size
+          - "64"
+          - --kv-cache-dtype
+          - fp8_e4m3
+          - --mem-fraction-static
+          - "0.85"
+          - --context-length
+          - "131072"
+          - --attention-backend
+          - trtllm_mha
+          - --mamba-radix-cache-strategy
+          - extra_buffer
+          - --enable-metrics
+          - --kv-events-config
+          - '{"publisher":"zmq","topic":"kv-events","endpoint":"tcp://*:5557"}'
+          - --host
+          - 0.0.0.0
+          - --engine-route
+          - flush_cache:tm
+          - --disaggregation-mode
+          - decode
+          - --disaggregation-transfer-backend
+          - nixl
+          - --disaggregation-bootstrap-port
+          - "12345"
+          command:
+          - /bin/bash
+          - -c
+          env:
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+          - name: HF_HUB_CACHE
+            value: /models/hub
+          - name: HF_HOME
+            value: /compile-cache/hf-home
+          - name: HF_HUB_OFFLINE
+            value: "1"
+          - name: TRANSFORMERS_OFFLINE
+            value: "1"
+          - name: DYN_FORWARDPASS_METRIC_PORT
+            value: ""
+          - name: DYN_SGL_ALLOW_TOP_LOGPROBS
+            value: "1"
+          - name: XDG_CACHE_HOME
+            value: /compile-cache/xdg
+          - name: TRITON_CACHE_DIR
+            value: /compile-cache/triton
+          - name: TORCHINDUCTOR_CACHE_DIR
+            value: /compile-cache/inductor
+          - name: FLASHINFER_WORKSPACE_BASE
+            value: /compile-cache/flashinfer
+          - name: SGLANG_CACHE_DIR
+            value: /compile-cache/sglang
+          - name: SGLANG_DISAGGREGATION_NIXL_BACKEND
+            value: LIBFABRIC
+          - name: FI_PROVIDER
+            value: efa
+          - name: FI_EFA_USE_DEVICE_RDMA
+            value: "1"
+          - name: FI_EFA_ENABLE_SHM_TRANSFER
+            value: "0"
+          - name: FI_EFA_ENABLE_SHM
+            value: "0"
+          - name: LD_LIBRARY_PATH
+            value: /opt/amazon/efa/lib:/opt/dynamo/nixl-ucx-compat:/opt/dynamo/nixl-capi:/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/cuda/lib64
+          - name: EXPECTED_GPUS
+            value: "1"
+          image: nvcr.io/nvidia/ai-dynamo/sglang-runtime:1.6.0-efa@sha256:d574951b0dbd037bdcaabe121431a83cd047a5c106cb243fe6f2f97f2e456cd2
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            failureThreshold: 60
+            httpGet:
+              path: /live
+              port: system
+            periodSeconds: 5
+            timeoutSeconds: 4
+          name: main
+          ports:
+          - containerPort: 9090
+            name: system
+          resources:
+            limits:
+              memory: 64Gi
+              nvidia.com/gpu: "1"
+              vpc.amazonaws.com/efa: "1"
+            requests:
+              cpu: "16"
+              memory: 64Gi
+              nvidia.com/gpu: "1"
+              vpc.amazonaws.com/efa: "1"
+          securityContext:
+            capabilities:
+              add:
+              - IPC_LOCK
+              - SYS_RESOURCE
+            privileged: true
+            runAsGroup: 0
+            runAsUser: 0
+          startupProbe:
+            failureThreshold: 240
+            httpGet:
+              path: /live
+              port: system
+            periodSeconds: 10
+            timeoutSeconds: 5
+          volumeMounts:
+          - mountPath: /models
+            name: models
+            readOnly: true
+          - mountPath: /compile-cache
+            name: compile-cache
+          workingDir: /workspace
+        initContainers:
+        - args:
+          - |
+            set -euo pipefail
+            root=/mnt/.ephemeral
+            marker="$root/models/hub/models--Qwen--Qwen3.8-27B-FP8/.done"
+            dev=$(df -P "$root" | awk 'NR==2 {print $1}')
+            size_gib=$(( $(df -Pk "$root" | awk 'NR==2 {print $2}') / 1048576 ))
+            echo "ephemeral device=$dev size=${size_gib}GiB"
+            if [ "$size_gib" -lt "$EPHEMERAL_MIN_GIB" ]; then
+              echo "FATAL: $root (${size_gib}GiB) is not the instance store" >&2
+              exit 1
+            fi
+            deadline=$(( $(date +%s) + WEIGHTS_WAIT_TIMEOUT_S ))
+            until grep -qx "revision=$MODEL_REVISION" "$marker" 2>/dev/null; do
+              if [ "$(date +%s)" -ge "$deadline" ]; then
+                echo "FATAL: no marker $marker for revision $MODEL_REVISION after ${WEIGHTS_WAIT_TIMEOUT_S}s" >&2
+                exit 1
+              fi
+              echo "waiting for $marker"
+              sleep 15
+            done
+            echo "weights ready: $(tr '\n' ' ' < "$marker")"
+          command:
+          - /bin/bash
+          - -c
+          env:
+          - name: MODEL_REVISION
+            value: 017b9c7af6b5689d5dd426a76e0bc077eb5ca20a
+          - name: EPHEMERAL_MIN_GIB
+            value: "10000"
+          - name: WEIGHTS_WAIT_TIMEOUT_S
+            value: "1800"
+          image: nvcr.io/nvidia/ai-dynamo/sglang-runtime:1.6.0-efa@sha256:d574951b0dbd037bdcaabe121431a83cd047a5c106cb243fe6f2f97f2e456cd2
+          imagePullPolicy: IfNotPresent
+          name: weights-gate
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            runAsGroup: 0
+            runAsUser: 0
+          volumeMounts:
+          - mountPath: /mnt/.ephemeral
+            name: ephemeral
+            readOnly: true
+        nodeSelector:
+          karpenter.sh/nodepool: gpu-b200-cb
+        tolerations:
+        - effect: NoSchedule
+          key: nvidia.com/gpu
+          operator: Exists
+        volumes:
+        - hostPath:
+            path: /mnt/.ephemeral/models
+            type: Directory
+          name: models
+        - hostPath:
+            path: /mnt/.ephemeral
+            type: Directory
+          name: ephemeral
+        - emptyDir: {}
+          name: compile-cache
+    replicas: 4
+    runtimeVersionOverride: 1.6.0
+    sharedMemorySize: 16Gi
+    type: decode

@@ -1,0 +1,75 @@
+# PREPULL-B1: keeps the sglang-runtime image cached on every cpu-demo node, so a cpu-demo node
+# created during a GPU block never makes a Frontend pull it at boot (g7e A/B: 7m40s lost). The
+# images are placeholders: kustomization.yaml sets RUNTIME_IMAGE of the platform config, the
+# same string as the Track Q Frontend (test_190 enforces the equality). `pull` is a no-op init
+# container: the pull is the point. `hold` keeps the image in use so kubelet image GC never
+# removes it.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: prepull-sglang-runtime
+  namespace: node-ops
+  labels:
+    app.kubernetes.io/name: prepull-sglang-runtime
+    app.kubernetes.io/part-of: dynamo-sample
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: prepull-sglang-runtime
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: prepull-sglang-runtime
+        app.kubernetes.io/part-of: dynamo-sample
+    spec:
+      nodeSelector:
+        karpenter.sh/nodepool: cpu-demo
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      # `sleep` as PID 1 ignores SIGTERM: do not wait 30 s for it.
+      terminationGracePeriodSeconds: 1
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: pull
+          image: runtime-image-placeholder
+          imagePullPolicy: IfNotPresent
+          command:
+            - "true"
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 10m
+              memory: 16Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      containers:
+        - name: hold
+          image: runtime-image-placeholder
+          imagePullPolicy: IfNotPresent
+          command:
+            - sleep
+            - infinity
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 10m
+              memory: 16Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL

@@ -1,0 +1,38 @@
+# PD pod layout (topology t-pd of the recorded runs): the agg Worker (components[1]) becomes 4 prefill pods and a copy of it 4
+# decode pods (components[2]), 1 GPU each (4P4D TP1 = 8 GPUs). Both roles keep the Worker's engine core, env,
+# probes, gate and placement unchanged. Only the decode sizing is role-specific here (memory class "decode":
+# 64Gi = 64Gi, E1 peak working set 6.4 GiB; the decode never runs HiCache). The PD role flags and the
+# LIBFABRIC/EFA transport come from components/pd-efa, applied after any HiCache component so the flag and env
+# order is the recorded one (core, HiCache, PD).
+- op: test
+  path: /spec/components/1/name
+  value: Worker
+- op: copy
+  from: /spec/components/1
+  path: /spec/components/-
+# ---------------------------------------------------------------- prefill
+- op: replace
+  path: /spec/components/1/name
+  value: prefill
+- op: replace
+  path: /spec/components/1/type
+  value: prefill
+- op: replace
+  path: /spec/components/1/replicas
+  value: 4
+# ---------------------------------------------------------------- decode
+- op: replace
+  path: /spec/components/2/name
+  value: decode
+- op: replace
+  path: /spec/components/2/type
+  value: decode
+- op: replace
+  path: /spec/components/2/replicas
+  value: 4
+- op: replace
+  path: /spec/components/2/podTemplate/spec/containers/0/resources/requests/memory
+  value: 64Gi
+- op: replace
+  path: /spec/components/2/podTemplate/spec/containers/0/resources/limits/memory
+  value: 64Gi

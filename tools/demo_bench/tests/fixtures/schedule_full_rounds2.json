@@ -1,0 +1,130 @@
+[
+  {
+    "round": 1,
+    "topology": "t-agg",
+    "router": "rr",
+    "scenario": "S0",
+    "new_deploy": true,
+    "namespace": "s-agg"
+  },
+  {
+    "round": 1,
+    "topology": "t-agg",
+    "router": "kv",
+    "scenario": "S1",
+    "new_deploy": false,
+    "namespace": "s-agg"
+  },
+  {
+    "round": 1,
+    "topology": "t-agg-hic",
+    "router": "kv",
+    "scenario": "S4",
+    "new_deploy": true,
+    "namespace": "s-agg-hic"
+  },
+  {
+    "round": 1,
+    "topology": "t-agg-hic",
+    "router": "rr",
+    "scenario": "S2",
+    "new_deploy": false,
+    "namespace": "s-agg-hic"
+  },
+  {
+    "round": 1,
+    "topology": "t-dis-hic",
+    "router": "kv",
+    "scenario": "S7",
+    "new_deploy": true,
+    "namespace": "s-dis-hic"
+  },
+  {
+    "round": 1,
+    "topology": "t-dis-hic",
+    "router": "rr",
+    "scenario": "S6",
+    "new_deploy": false,
+    "namespace": "s-dis-hic"
+  },
+  {
+    "round": 1,
+    "topology": "t-dis",
+    "router": "rr",
+    "scenario": "S3",
+    "new_deploy": true,
+    "namespace": "s-dis"
+  },
+  {
+    "round": 1,
+    "topology": "t-dis",
+    "router": "kv",
+    "scenario": "S5",
+    "new_deploy": false,
+    "namespace": "s-dis"
+  },
+  {
+    "round": 2,
+    "topology": "t-agg-hic",
+    "router": "rr",
+    "scenario": "S2",
+    "new_deploy": true,
+    "namespace": "s-agg-hic"
+  },
+  {
+    "round": 2,
+    "topology": "t-agg-hic",
+    "router": "kv",
+    "scenario": "S4",
+    "new_deploy": false,
+    "namespace": "s-agg-hic"
+  },
+  {
+    "round": 2,
+    "topology": "t-dis",
+    "router": "kv",
+    "scenario": "S5",
+    "new_deploy": true,
+    "namespace": "s-dis"
+  },
+  {
+    "round": 2,
+    "topology": "t-dis",
+    "router": "rr",
+    "scenario": "S3",
+    "new_deploy": false,
+    "namespace": "s-dis"
+  },
+  {
+    "round": 2,
+    "topology": "t-agg",
+    "router": "kv",
+    "scenario": "S1",
+    "new_deploy": true,
+    "namespace": "s-agg"
+  },
+  {
+    "round": 2,
+    "topology": "t-agg",
+    "router": "rr",
+    "scenario": "S0",
+    "new_deploy": false,
+    "namespace": "s-agg"
+  },
+  {
+    "round": 2,
+    "topology": "t-dis-hic",
+    "router": "rr",
+    "scenario": "S6",
+    "new_deploy": true,
+    "namespace": "s-dis-hic"
+  },
+  {
+    "round": 2,
+    "topology": "t-dis-hic",
+    "router": "kv",
+    "scenario": "S7",
+    "new_deploy": false,
+    "namespace": "s-dis-hic"
+  }
+]

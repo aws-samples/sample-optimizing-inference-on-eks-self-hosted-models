@@ -1,0 +1,27 @@
+# Track Q base = the engine definition shared by every cell: the Frontend (../frontend) + the agg Worker
+# (8 x TP1, HiCache off). No namespace: topologies/<t> set it. The Worker's main and init containers take
+# RUNTIME_IMAGE from the config ConfigMap that ../frontend brings in, so every container of every render runs
+# the one config image.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../frontend
+patches:
+  - path: add-worker.yaml
+    target:
+      group: nvidia.com
+      version: v1beta1
+      kind: DynamoGraphDeployment
+      name: q38
+replacements:
+  - source:
+      kind: ConfigMap
+      name: platform-config
+      fieldPath: data.RUNTIME_IMAGE
+    targets:
+      - select:
+          kind: DynamoGraphDeployment
+          name: q38
+        fieldPaths:
+          - spec.components.[name=Worker].podTemplate.spec.containers.*.image
+          - spec.components.[name=Worker].podTemplate.spec.initContainers.*.image

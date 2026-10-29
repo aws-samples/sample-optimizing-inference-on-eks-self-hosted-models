@@ -1,0 +1,68 @@
+{
+  "status": "W3-16K, n=1 per cell and rate; never pooled with the W2 workload of record. Values copied from the inputs record of the runs.",
+  "generator": "demo-bench trace w2 (unchanged)",
+  "shape": {
+    "seed": 1111,
+    "turns": 11,
+    "global-prefix-tokens": 2048,
+    "entry-tokens": 5632,
+    "growth-tokens": 1024,
+    "gap-sigma": 0.3,
+    "populate-s": 180,
+    "cold-fraction": 0.03,
+    "cold-min-tokens": 15872,
+    "cold-max-tokens": 15872,
+    "osl": 500,
+    "max-isl": 16384,
+    "block-size": 512
+  },
+  "sessions_per_rate": 75,
+  "cut_ms": 615000,
+  "measured_window_s": [255, 615],
+  "rates": {
+    "10": {
+      "sessions": 750,
+      "window_rows": 5769,
+      "window_sha256": "906debd423abaa3338fad4687a814db2affb25caaf7fae5156d8e2eb6849730c",
+      "sidecar_sha256": "daecaa73cc8e7af82d2d611a20ee75a3734bafd298337562a9dec23751efad96",
+      "full_sha256": "921cb30be84f0b393cc90d3f865b0319e6d25fbbcc12cc9e5e3c272f6118bfb2",
+      "full_sidecar_sha256": "37ef76773b3d1b66ade618eb0c302564a252e9317f2d7f3b452f8f009cddd9d2",
+      "outcome": "valid"
+    },
+    "25": {
+      "sessions": 1875,
+      "window_rows": 14472,
+      "window_sha256": "49d83f37410f6205eccfe090f50dd47082cac2580ba410c1a11cc39743f83f21",
+      "sidecar_sha256": "ef4bdd276b8cc9497d9a760f94fccabf00622a34458b2c0b92e53a9cc314ec28",
+      "full_sha256": "5712b68a923c137299e13a5ae904d069462ac9b9e403cab2d6431a3f6434d709",
+      "full_sidecar_sha256": "e8f077bb5d8f0cae0af508d4bd761c4403058676cafbb3225b9794fff7be81ca",
+      "outcome": "valid"
+    },
+    "32": {
+      "sessions": 2400,
+      "window_rows": 18507,
+      "window_sha256": "cb872dc5c0aa9553d85b0f839387f56a6195f726ce4c9c29479e2b9cd4590301",
+      "sidecar_sha256": "fa68d96658c45eeead8446479154d8189eb5327a1a46afc67b5bfd16a16a4279",
+      "full_sha256": "367002bd5140df7869ba47bb8182a6b2f6edcd96d1b75d7184b98194e1e46b21",
+      "full_sidecar_sha256": "b0930357833c9e2f0b9c0d836ac80ea2a826663a27b96e333c12976ca2c01b0f",
+      "outcome": "valid"
+    },
+    "50": {
+      "sessions": 3750,
+      "window_rows": 28905,
+      "window_sha256": "12be497f5c5a2cf262005966e70ce1d36f7d26733e66eab12777cf2dd38b41fb",
+      "sidecar_sha256": "df08a7b531a6223105bb7b2967ebcb85cf908df946744ba6be043e8a9c44e4ee",
+      "full_sha256": "48ed7fd39f0205f40cfdd59eb53db25bde3bf3bfb0648e47c131d8ad0a7ebd60",
+      "full_sidecar_sha256": "01db7b6f537120e6d42c404a25141f10a0cf957a69372d94426b2a429e1bfb33",
+      "outcome": "inconclusive"
+    }
+  },
+  "cells": ["S0", "S7"],
+  "slo": {
+    "continuation_ttft_s": 1.0,
+    "cold_ttft_s": 2.0,
+    "itl_ms": 25.0,
+    "cold_prefill_tok_s": 7936,
+    "plan_header": "slo ttft_s=1.0 itl_ms=25 cold_factor=1 cold_prefill_tok_s=7936"
+  }
+}

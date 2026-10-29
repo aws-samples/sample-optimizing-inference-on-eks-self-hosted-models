@@ -1,0 +1,6 @@
+# Cell S2 = t-agg-hic + round-robin Frontend (agg 8x TP1, HiCache L2 200 GB + L3).
+# Rendered to ../../rendered/S2.yaml by scripts/render-track-q.sh.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../overlays/t-agg-hic

@@ -1,0 +1,18 @@
+# On-stage step: `kubectl diff -k` then `kubectl apply -k` this overlay (only DYN_ROUTER_MODE changes).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+patches:
+  - target:
+      group: nvidia.com
+      version: v1beta1
+      kind: DynamoGraphDeployment
+      name: mocker
+    patch: |-
+      - op: test
+        path: /spec/components/0/podTemplate/spec/containers/0/env/1/name
+        value: DYN_ROUTER_MODE
+      - op: replace
+        path: /spec/components/0/podTemplate/spec/containers/0/env/1/value
+        value: kv

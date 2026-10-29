@@ -1,0 +1,318 @@
+{
+  "c7i.large": {
+    "default_vcpus": 2,
+    "efa_maximum_interfaces": null,
+    "efa_supported": false,
+    "gpus": [],
+    "maximum_network_cards": 1,
+    "memory_size": 4096,
+    "supported_architectures": [
+      "x86_64"
+    ],
+    "total_instance_storage": 0
+  },
+  "g5.12xlarge": {
+    "default_vcpus": 48,
+    "efa_maximum_interfaces": 1,
+    "efa_supported": true,
+    "gpus": [
+      {
+        "count": 4,
+        "manufacturer": "NVIDIA",
+        "memory_size": 22888,
+        "name": "A10G"
+      }
+    ],
+    "maximum_network_cards": 1,
+    "memory_size": 196608,
+    "supported_architectures": [
+      "x86_64"
+    ],
+    "total_instance_storage": 3800
+  },
+  "g5.xlarge": {
+    "default_vcpus": 4,
+    "efa_maximum_interfaces": null,
+    "efa_supported": false,
+    "gpus": [
+      {
+        "count": 1,
+        "manufacturer": "NVIDIA",
+        "memory_size": 22888,
+        "name": "A10G"
+      }
+    ],
+    "maximum_network_cards": 1,
+    "memory_size": 16384,
+    "supported_architectures": [
+      "x86_64"
+    ],
+    "total_instance_storage": 250
+  },
+  "g5g.xlarge": {
+    "default_vcpus": 4,
+    "efa_maximum_interfaces": null,
+    "efa_supported": false,
+    "gpus": [
+      {
+        "count": 1,
+        "manufacturer": "NVIDIA",
+        "memory_size": 16384,
+        "name": "T4g"
+      }
+    ],
+    "maximum_network_cards": 1,
+    "memory_size": 8192,
+    "supported_architectures": [
+      "arm64"
+    ],
+    "total_instance_storage": 0
+  },
+  "g6.48xlarge": {
+    "default_vcpus": 192,
+    "efa_maximum_interfaces": 1,
+    "efa_supported": true,
+    "gpus": [
+      {
+        "count": 8,
+        "manufacturer": "NVIDIA",
+        "memory_size": 22888,
+        "name": "L4"
+      }
+    ],
+    "maximum_network_cards": 1,
+    "memory_size": 786432,
+    "supported_architectures": [
+      "x86_64"
+    ],
+    "total_instance_storage": 7520
+  },
+  "g6e.12xlarge": {
+    "default_vcpus": 48,
+    "efa_maximum_interfaces": 1,
+    "efa_supported": true,
+    "gpus": [
+      {
+        "count": 4,
+        "manufacturer": "NVIDIA",
+        "memory_size": 45776,
+        "name": "L40S"
+      }
+    ],
+    "maximum_network_cards": 1,
+    "memory_size": 393216,
+    "supported_architectures": [
+      "x86_64"
+    ],
+    "total_instance_storage": 3800
+  },
+  "g6e.2xlarge": {
+    "default_vcpus": 8,
+    "efa_maximum_interfaces": null,
+    "efa_supported": false,
+    "gpus": [
+      {
+        "count": 1,
+        "manufacturer": "NVIDIA",
+        "memory_size": 45776,
+        "name": "L40S"
+      }
+    ],
+    "maximum_network_cards": 1,
+    "memory_size": 65536,
+    "supported_architectures": [
+      "x86_64"
+    ],
+    "total_instance_storage": 450
+  },
+  "g6e.48xlarge": {
+    "default_vcpus": 192,
+    "efa_maximum_interfaces": 4,
+    "efa_supported": true,
+    "gpus": [
+      {
+        "count": 8,
+        "manufacturer": "NVIDIA",
+        "memory_size": 45776,
+        "name": "L40S"
+      }
+    ],
+    "maximum_network_cards": 4,
+    "memory_size": 1572864,
+    "supported_architectures": [
+      "x86_64"
+    ],
+    "total_instance_storage": 7600
+  },
+  "g6e.xlarge": {
+    "default_vcpus": 4,
+    "efa_maximum_interfaces": null,
+    "efa_supported": false,
+    "gpus": [
+      {
+        "count": 1,
+        "manufacturer": "NVIDIA",
+        "memory_size": 45776,
+        "name": "L40S"
+      }
+    ],
+    "maximum_network_cards": 1,
+    "memory_size": 32768,
+    "supported_architectures": [
+      "x86_64"
+    ],
+    "total_instance_storage": 250
+  },
+  "g7e.48xlarge": {
+    "default_vcpus": 192,
+    "efa_maximum_interfaces": 4,
+    "efa_supported": true,
+    "gpus": [
+      {
+        "count": 8,
+        "manufacturer": "NVIDIA",
+        "memory_size": 98304,
+        "name": "RTX PRO Server 6000"
+      }
+    ],
+    "maximum_network_cards": 4,
+    "memory_size": 2097152,
+    "supported_architectures": [
+      "x86_64"
+    ],
+    "total_instance_storage": 15200
+  },
+  "g7e.4xlarge": {
+    "default_vcpus": 16,
+    "efa_maximum_interfaces": null,
+    "efa_supported": false,
+    "gpus": [
+      {
+        "count": 1,
+        "manufacturer": "NVIDIA",
+        "memory_size": 98304,
+        "name": "RTX PRO Server 6000"
+      }
+    ],
+    "maximum_network_cards": 1,
+    "memory_size": 131072,
+    "supported_architectures": [
+      "x86_64"
+    ],
+    "total_instance_storage": 1900
+  },
+  "p4d.24xlarge": {
+    "default_vcpus": 96,
+    "efa_maximum_interfaces": 4,
+    "efa_supported": true,
+    "gpus": [
+      {
+        "count": 8,
+        "manufacturer": "NVIDIA",
+        "memory_size": 40960,
+        "name": "A100"
+      }
+    ],
+    "maximum_network_cards": 4,
+    "memory_size": 1179648,
+    "supported_architectures": [
+      "x86_64"
+    ],
+    "total_instance_storage": 8000
+  },
+  "p4de.24xlarge": {
+    "default_vcpus": 96,
+    "efa_maximum_interfaces": 4,
+    "efa_supported": true,
+    "gpus": [
+      {
+        "count": 8,
+        "manufacturer": "NVIDIA",
+        "memory_size": 81920,
+        "name": "A100"
+      }
+    ],
+    "maximum_network_cards": 4,
+    "memory_size": 1179648,
+    "supported_architectures": [
+      "x86_64"
+    ],
+    "total_instance_storage": 8000
+  },
+  "p5.48xlarge": {
+    "default_vcpus": 192,
+    "efa_maximum_interfaces": 32,
+    "efa_supported": true,
+    "gpus": [
+      {
+        "count": 8,
+        "manufacturer": "NVIDIA",
+        "memory_size": 81920,
+        "name": "H100"
+      }
+    ],
+    "maximum_network_cards": 32,
+    "memory_size": 2097152,
+    "supported_architectures": [
+      "x86_64"
+    ],
+    "total_instance_storage": 30400
+  },
+  "p5en.48xlarge": {
+    "default_vcpus": 192,
+    "efa_maximum_interfaces": 16,
+    "efa_supported": true,
+    "gpus": [
+      {
+        "count": 8,
+        "manufacturer": "NVIDIA",
+        "memory_size": 144384,
+        "name": "H200"
+      }
+    ],
+    "maximum_network_cards": 16,
+    "memory_size": 2097152,
+    "supported_architectures": [
+      "x86_64"
+    ],
+    "total_instance_storage": 30400
+  },
+  "p6-b200.48xlarge": {
+    "default_vcpus": 192,
+    "efa_maximum_interfaces": 8,
+    "efa_supported": true,
+    "gpus": [
+      {
+        "count": 8,
+        "manufacturer": "NVIDIA",
+        "memory_size": 183359,
+        "name": "B200"
+      }
+    ],
+    "maximum_network_cards": 8,
+    "memory_size": 2097152,
+    "supported_architectures": [
+      "x86_64"
+    ],
+    "total_instance_storage": 30400
+  },
+  "p6-b300.48xlarge": {
+    "default_vcpus": 192,
+    "efa_maximum_interfaces": 16,
+    "efa_supported": true,
+    "gpus": [
+      {
+        "count": 8,
+        "manufacturer": "NVIDIA",
+        "memory_size": 275040,
+        "name": "B300"
+      }
+    ],
+    "maximum_network_cards": 17,
+    "memory_size": 4194304,
+    "supported_architectures": [
+      "x86_64"
+    ],
+    "total_instance_storage": 30400
+  }
+}

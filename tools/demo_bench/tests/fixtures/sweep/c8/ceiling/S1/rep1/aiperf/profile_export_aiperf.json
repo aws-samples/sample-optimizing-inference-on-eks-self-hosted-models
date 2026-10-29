@@ -1,0 +1,55 @@
+{
+  "schema_version": "1.4",
+  "aiperf_version": "0.13.0",
+  "benchmark_id": "fxS1c8",
+  "was_cancelled": false,
+  "error_summary": [],
+  "time_to_first_token": {
+    "unit": "ms",
+    "avg": 682.0,
+    "p1": 186.0,
+    "p5": 248.0,
+    "p10": 310.0,
+    "p25": 434.0,
+    "p50": 620.0,
+    "p75": 806.0,
+    "p90": 992.0,
+    "p95": 1178.0,
+    "p99": 1488.0,
+    "min": 124.0,
+    "max": 1860.0,
+    "std": 310.0,
+    "count": 400.0,
+    "sum": 272800.0
+  },
+  "inter_token_latency": {
+    "unit": "ms",
+    "avg": 20.9,
+    "p1": 5.7,
+    "p5": 7.6,
+    "p10": 9.5,
+    "p25": 13.3,
+    "p50": 19.0,
+    "p75": 24.7,
+    "p90": 30.4,
+    "p95": 36.1,
+    "p99": 45.6,
+    "min": 3.8,
+    "max": 57.0,
+    "std": 9.5,
+    "count": 400.0,
+    "sum": 8360.0
+  },
+  "output_token_throughput": {
+    "unit": "tokens/sec",
+    "avg": 337.897
+  },
+  "request_throughput": {
+    "unit": "requests/sec",
+    "avg": 1.8385
+  },
+  "request_count": {
+    "unit": "requests",
+    "avg": 32.0
+  }
+}

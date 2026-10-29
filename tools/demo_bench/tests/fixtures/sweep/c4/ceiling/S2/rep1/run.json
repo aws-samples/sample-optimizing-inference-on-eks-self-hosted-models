@@ -1,0 +1,29 @@
+{
+  "series": "ceiling",
+  "scenario": "S2",
+  "rep": 1,
+  "seed": 43,
+  "topology": "t-agg-hic",
+  "mode": "closed-loop",
+  "schedule": null,
+  "concurrency": 4,
+  "trace": {
+    "path": "/traces/64k_400_90kv_agent_new_noschedule_short_15perc.jsonl",
+    "sha256": "ddc75ce76df40000000000000000000000000000000000000000000000000000"
+  },
+  "pd_placement": null,
+  "namespace": "s-agg-hic",
+  "router": "rr",
+  "dgd": "q38",
+  "run_id": "fixture",
+  "model_revision": "6e389189d564d9d3e4ea7fa284fe91f136d8ae2a",
+  "started_at": "2026-10-20T12:00:00Z",
+  "ended_at": "2026-10-20T12:20:00Z",
+  "aiperf": {
+    "requirement": "aiperf==0.13.0",
+    "rc": 0
+  },
+  "restarted_pods": [],
+  "pods": [],
+  "reset": []
+}

@@ -1,0 +1,21 @@
+# Root of every Track Q render: the Frontend-only DGD q38 plus the platform config (../../config).
+# The config's local-config ConfigMap travels up to every render that builds on this directory (base/ reads
+# it for the workers) and is dropped from the output. Track Q has ONE image, so it is bound here, once:
+# RUNTIME_IMAGE replaces the Frontend image placeholder.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - dgd.yaml
+components:
+  - ../../config
+replacements:
+  - source:
+      kind: ConfigMap
+      name: platform-config
+      fieldPath: data.RUNTIME_IMAGE
+    targets:
+      - select:
+          kind: DynamoGraphDeployment
+          name: q38
+        fieldPaths:
+          - spec.components.[name=Frontend].podTemplate.spec.containers.[name=main].image

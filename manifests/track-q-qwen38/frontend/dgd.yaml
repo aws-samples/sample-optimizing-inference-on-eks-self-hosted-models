@@ -1,0 +1,65 @@
+# Track Q Frontend (Qwen3.8-27B-FP8 TP1): the Frontend-only DGD q38, the single source of the
+# Frontend of every cell, topology overlay and rr/kv toggle overlay (server-side apply merges spec.components by
+# name, so the toggle rolls only the Frontend). Reproduces the Frontend of the recorded runs (driver v2
+# renderer, frontend()): Frontend on the B200 node with the engines, runtime
+# 1.6.0 of the derived image, round-robin by default (R off; components/router-kv sets kv), limit 16Gi (E1 peak
+# 0.38 GiB). The image is a placeholder: kustomization.yaml replaces it with RUNTIME_IMAGE of ../../config.
+# Delete only by name q38 + label app.kubernetes.io/part-of=qwen38-matrix. One topology at a time (8 GPUs).
+apiVersion: nvidia.com/v1beta1
+kind: DynamoGraphDeployment
+metadata:
+  name: q38
+  labels:
+    app.kubernetes.io/name: q38
+    app.kubernetes.io/part-of: qwen38-matrix
+spec:
+  backendFramework: sglang
+  components:
+    - name: Frontend
+      type: frontend
+      replicas: 1
+      runtimeVersionOverride: "1.6.0"
+      podTemplate:
+        metadata:
+          labels:
+            app.kubernetes.io/part-of: qwen38-matrix
+          annotations:
+            karpenter.sh/do-not-disrupt: "true"
+        spec:
+          nodeSelector:
+            karpenter.sh/nodepool: gpu-b200-cb
+          tolerations:
+            - key: nvidia.com/gpu
+              operator: Exists
+              effect: NoSchedule
+          containers:
+            - name: main
+              image: track-q-image-placeholder
+              imagePullPolicy: IfNotPresent
+              command:
+                - python3
+              args:
+                - -m
+                - dynamo.frontend
+                - --http-host
+                - 0.0.0.0
+                - --http-port
+                - "8000"
+              env:
+                - name: HF_HUB_OFFLINE
+                  value: "1"
+                - name: TRANSFORMERS_OFFLINE
+                  value: "1"
+                # R toggle: keep DYN_ROUTER_MODE at env[2] (components/router-kv tests the name before
+                # replacing the value; the cell arms differ only at this path).
+                - name: DYN_ROUTER_MODE
+                  value: round-robin
+              ports:
+                - name: http
+                  containerPort: 8000
+              resources:
+                requests:
+                  cpu: "8"
+                  memory: 16Gi
+                limits:
+                  memory: 16Gi

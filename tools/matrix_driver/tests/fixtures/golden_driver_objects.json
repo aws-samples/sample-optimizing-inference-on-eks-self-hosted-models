@@ -1,0 +1,1611 @@
+{
+ "base": [
+  {
+   "apiVersion": "v1",
+   "kind": "ServiceAccount",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/name": "matrix-driver"
+    },
+    "name": "matrix-driver",
+    "namespace": "bench"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "ServiceAccount",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/name": "bench"
+    },
+    "name": "bench",
+    "namespace": "bench"
+   }
+  },
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "Role",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/name": "q38-matrix-driver",
+     "app.kubernetes.io/part-of": "qwen38-matrix"
+    },
+    "name": "q38-matrix-driver",
+    "namespace": "s-agg"
+   },
+   "rules": [
+    {
+     "apiGroups": [
+      "nvidia.com"
+     ],
+     "resources": [
+      "dynamographdeployments"
+     ],
+     "verbs": [
+      "get",
+      "list",
+      "watch",
+      "create",
+      "patch",
+      "delete"
+     ]
+    },
+    {
+     "apiGroups": [
+      ""
+     ],
+     "resources": [
+      "pods"
+     ],
+     "verbs": [
+      "get",
+      "list",
+      "watch",
+      "delete"
+     ]
+    },
+    {
+     "apiGroups": [
+      ""
+     ],
+     "resources": [
+      "pods/log"
+     ],
+     "verbs": [
+      "get"
+     ]
+    },
+    {
+     "apiGroups": [
+      ""
+     ],
+     "resources": [
+      "pods/exec"
+     ],
+     "verbs": [
+      "create"
+     ]
+    },
+    {
+     "apiGroups": [
+      ""
+     ],
+     "resources": [
+      "events"
+     ],
+     "verbs": [
+      "get",
+      "list"
+     ]
+    }
+   ]
+  },
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "RoleBinding",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/name": "q38-matrix-driver",
+     "app.kubernetes.io/part-of": "qwen38-matrix"
+    },
+    "name": "q38-matrix-driver",
+    "namespace": "s-agg"
+   },
+   "roleRef": {
+    "apiGroup": "rbac.authorization.k8s.io",
+    "kind": "Role",
+    "name": "q38-matrix-driver"
+   },
+   "subjects": [
+    {
+     "kind": "ServiceAccount",
+     "name": "matrix-driver",
+     "namespace": "bench"
+    }
+   ]
+  },
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "Role",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/name": "q38-matrix-driver",
+     "app.kubernetes.io/part-of": "qwen38-matrix"
+    },
+    "name": "q38-matrix-driver",
+    "namespace": "s-agg-hic"
+   },
+   "rules": [
+    {
+     "apiGroups": [
+      "nvidia.com"
+     ],
+     "resources": [
+      "dynamographdeployments"
+     ],
+     "verbs": [
+      "get",
+      "list",
+      "watch",
+      "create",
+      "patch",
+      "delete"
+     ]
+    },
+    {
+     "apiGroups": [
+      ""
+     ],
+     "resources": [
+      "pods"
+     ],
+     "verbs": [
+      "get",
+      "list",
+      "watch",
+      "delete",
+      "create"
+     ]
+    },
+    {
+     "apiGroups": [
+      ""
+     ],
+     "resources": [
+      "pods/log"
+     ],
+     "verbs": [
+      "get"
+     ]
+    },
+    {
+     "apiGroups": [
+      ""
+     ],
+     "resources": [
+      "pods/exec"
+     ],
+     "verbs": [
+      "create"
+     ]
+    },
+    {
+     "apiGroups": [
+      ""
+     ],
+     "resources": [
+      "events"
+     ],
+     "verbs": [
+      "get",
+      "list"
+     ]
+    }
+   ]
+  },
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "RoleBinding",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/name": "q38-matrix-driver",
+     "app.kubernetes.io/part-of": "qwen38-matrix"
+    },
+    "name": "q38-matrix-driver",
+    "namespace": "s-agg-hic"
+   },
+   "roleRef": {
+    "apiGroup": "rbac.authorization.k8s.io",
+    "kind": "Role",
+    "name": "q38-matrix-driver"
+   },
+   "subjects": [
+    {
+     "kind": "ServiceAccount",
+     "name": "matrix-driver",
+     "namespace": "bench"
+    }
+   ]
+  },
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "Role",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/name": "q38-matrix-driver",
+     "app.kubernetes.io/part-of": "qwen38-matrix"
+    },
+    "name": "q38-matrix-driver",
+    "namespace": "s-dis"
+   },
+   "rules": [
+    {
+     "apiGroups": [
+      "nvidia.com"
+     ],
+     "resources": [
+      "dynamographdeployments"
+     ],
+     "verbs": [
+      "get",
+      "list",
+      "watch",
+      "create",
+      "patch",
+      "delete"
+     ]
+    },
+    {
+     "apiGroups": [
+      ""
+     ],
+     "resources": [
+      "pods"
+     ],
+     "verbs": [
+      "get",
+      "list",
+      "watch",
+      "delete"
+     ]
+    },
+    {
+     "apiGroups": [
+      ""
+     ],
+     "resources": [
+      "pods/log"
+     ],
+     "verbs": [
+      "get"
+     ]
+    },
+    {
+     "apiGroups": [
+      ""
+     ],
+     "resources": [
+      "pods/exec"
+     ],
+     "verbs": [
+      "create"
+     ]
+    },
+    {
+     "apiGroups": [
+      ""
+     ],
+     "resources": [
+      "events"
+     ],
+     "verbs": [
+      "get",
+      "list"
+     ]
+    }
+   ]
+  },
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "RoleBinding",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/name": "q38-matrix-driver",
+     "app.kubernetes.io/part-of": "qwen38-matrix"
+    },
+    "name": "q38-matrix-driver",
+    "namespace": "s-dis"
+   },
+   "roleRef": {
+    "apiGroup": "rbac.authorization.k8s.io",
+    "kind": "Role",
+    "name": "q38-matrix-driver"
+   },
+   "subjects": [
+    {
+     "kind": "ServiceAccount",
+     "name": "matrix-driver",
+     "namespace": "bench"
+    }
+   ]
+  },
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "Role",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/name": "q38-matrix-driver",
+     "app.kubernetes.io/part-of": "qwen38-matrix"
+    },
+    "name": "q38-matrix-driver",
+    "namespace": "s-dis-hic"
+   },
+   "rules": [
+    {
+     "apiGroups": [
+      "nvidia.com"
+     ],
+     "resources": [
+      "dynamographdeployments"
+     ],
+     "verbs": [
+      "get",
+      "list",
+      "watch",
+      "create",
+      "patch",
+      "delete"
+     ]
+    },
+    {
+     "apiGroups": [
+      ""
+     ],
+     "resources": [
+      "pods"
+     ],
+     "verbs": [
+      "get",
+      "list",
+      "watch",
+      "delete",
+      "create"
+     ]
+    },
+    {
+     "apiGroups": [
+      ""
+     ],
+     "resources": [
+      "pods/log"
+     ],
+     "verbs": [
+      "get"
+     ]
+    },
+    {
+     "apiGroups": [
+      ""
+     ],
+     "resources": [
+      "pods/exec"
+     ],
+     "verbs": [
+      "create"
+     ]
+    },
+    {
+     "apiGroups": [
+      ""
+     ],
+     "resources": [
+      "events"
+     ],
+     "verbs": [
+      "get",
+      "list"
+     ]
+    }
+   ]
+  },
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "RoleBinding",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/name": "q38-matrix-driver",
+     "app.kubernetes.io/part-of": "qwen38-matrix"
+    },
+    "name": "q38-matrix-driver",
+    "namespace": "s-dis-hic"
+   },
+   "roleRef": {
+    "apiGroup": "rbac.authorization.k8s.io",
+    "kind": "Role",
+    "name": "q38-matrix-driver"
+   },
+   "subjects": [
+    {
+     "kind": "ServiceAccount",
+     "name": "matrix-driver",
+     "namespace": "bench"
+    }
+   ]
+  },
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "Role",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/name": "q38-matrix-driver",
+     "app.kubernetes.io/part-of": "qwen38-matrix"
+    },
+    "name": "q38-matrix-bench",
+    "namespace": "bench"
+   },
+   "rules": [
+    {
+     "apiGroups": [
+      "batch"
+     ],
+     "resources": [
+      "jobs"
+     ],
+     "verbs": [
+      "get",
+      "list",
+      "delete",
+      "create"
+     ]
+    },
+    {
+     "apiGroups": [
+      "batch"
+     ],
+     "resources": [
+      "cronjobs"
+     ],
+     "verbs": [
+      "get"
+     ]
+    }
+   ]
+  },
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "RoleBinding",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/name": "q38-matrix-driver",
+     "app.kubernetes.io/part-of": "qwen38-matrix"
+    },
+    "name": "q38-matrix-bench",
+    "namespace": "bench"
+   },
+   "roleRef": {
+    "apiGroup": "rbac.authorization.k8s.io",
+    "kind": "Role",
+    "name": "q38-matrix-bench"
+   },
+   "subjects": [
+    {
+     "kind": "ServiceAccount",
+     "name": "matrix-driver",
+     "namespace": "bench"
+    }
+   ]
+  },
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "ClusterRole",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/name": "q38-matrix-driver",
+     "app.kubernetes.io/part-of": "qwen38-matrix"
+    },
+    "name": "q38-matrix-driver-read"
+   },
+   "rules": [
+    {
+     "apiGroups": [
+      ""
+     ],
+     "resources": [
+      "pods",
+      "nodes"
+     ],
+     "verbs": [
+      "get",
+      "list"
+     ]
+    },
+    {
+     "apiGroups": [
+      "nvidia.com"
+     ],
+     "resources": [
+      "dynamographdeployments"
+     ],
+     "verbs": [
+      "get",
+      "list"
+     ]
+    }
+   ]
+  },
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "ClusterRoleBinding",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/name": "q38-matrix-driver",
+     "app.kubernetes.io/part-of": "qwen38-matrix"
+    },
+    "name": "q38-matrix-driver-read"
+   },
+   "roleRef": {
+    "apiGroup": "rbac.authorization.k8s.io",
+    "kind": "ClusterRole",
+    "name": "q38-matrix-driver-read"
+   },
+   "subjects": [
+    {
+     "kind": "ServiceAccount",
+     "name": "matrix-driver",
+     "namespace": "bench"
+    }
+   ]
+  },
+  {
+   "binary_keys": [
+    "demo_bench-0.1.0-py3-none-any.whl"
+   ],
+   "data_keys": [
+    "matrix_driver.py",
+    "wheel.sha256"
+   ],
+   "kind": "ConfigMap",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/name": "q38-matrix-driver",
+     "app.kubernetes.io/part-of": "qwen38-matrix"
+    },
+    "name": "q38-matrix-driver",
+    "namespace": "bench"
+   }
+  },
+  {
+   "binary_keys": [],
+   "data_keys": [
+    "S0.yaml",
+    "S1.yaml",
+    "S2.yaml",
+    "S3.yaml",
+    "S4.yaml",
+    "S5.yaml",
+    "S6.yaml",
+    "S7.yaml"
+   ],
+   "kind": "ConfigMap",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/name": "q38-matrix-driver",
+     "app.kubernetes.io/part-of": "qwen38-matrix"
+    },
+    "name": "q38-matrix-dgds",
+    "namespace": "bench"
+   }
+  },
+  {
+   "binary_keys": [],
+   "data_keys": [
+    "plan-w3-r10-cells.txt",
+    "plan-w3-r10.txt",
+    "plan-w3-r25-cells.txt",
+    "plan-w3-r25.txt",
+    "plan-w3-r32-cells.txt",
+    "plan-w3-r32.txt"
+   ],
+   "kind": "ConfigMap",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/name": "q38-matrix-driver",
+     "app.kubernetes.io/part-of": "qwen38-matrix"
+    },
+    "name": "q38-matrix-plans",
+    "namespace": "bench"
+   }
+  },
+  {
+   "binary_keys": [],
+   "data_keys": [
+    "capture.py",
+    "compose.sh"
+   ],
+   "kind": "ConfigMap",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/name": "q38-matrix-driver",
+     "app.kubernetes.io/part-of": "qwen38-matrix"
+    },
+    "name": "q38-take-capture",
+    "namespace": "bench"
+   }
+  }
+ ],
+ "job_e7": [
+  {
+   "apiVersion": "batch/v1",
+   "kind": "Job",
+   "metadata": {
+    "annotations": {
+     "q38-matrix/hard-stop": "2026-10-24T09:00:00Z",
+     "q38-matrix/rendered-at": "2026-10-23T22:00:00Z"
+    },
+    "labels": {
+     "app.kubernetes.io/name": "q38-matrix-driver",
+     "app.kubernetes.io/part-of": "qwen38-matrix",
+     "q38-matrix/plan": "plan-e7"
+    },
+    "name": "q38-matrix-e7",
+    "namespace": "bench"
+   },
+   "spec": {
+    "activeDeadlineSeconds": 39600,
+    "backoffLimit": 0,
+    "completions": 1,
+    "parallelism": 1,
+    "template": {
+     "metadata": {
+      "annotations": {
+       "karpenter.sh/do-not-disrupt": "true"
+      },
+      "labels": {
+       "app.kubernetes.io/name": "q38-matrix-driver",
+       "app.kubernetes.io/part-of": "qwen38-matrix",
+       "q38-matrix/plan": "plan-e7"
+      }
+     },
+     "spec": {
+      "containers": [
+       {
+        "args": [
+         "--plan",
+         "/etc/q38/plans/plan-e7.txt"
+        ],
+        "command": [
+         "python3",
+         "-I",
+         "/etc/q38/driver/matrix_driver.py"
+        ],
+        "env": [
+         {
+          "name": "AWS_REGION",
+          "value": "${AWS_REGION}"
+         },
+         {
+          "name": "AWS_DEFAULT_REGION",
+          "value": "${AWS_REGION}"
+         },
+         {
+          "name": "RESULTS_BUCKET",
+          "value": "${RESULTS_BUCKET}"
+         },
+         {
+          "name": "WORK",
+          "value": "/work"
+         },
+         {
+          "name": "DGD_DIR",
+          "value": "/etc/q38/dgds"
+         },
+         {
+          "name": "DRIVER_DIR",
+          "value": "/etc/q38/driver"
+         },
+         {
+          "name": "CB_NODE",
+          "value": "${CB_NODE}"
+         },
+         {
+          "name": "HARD_STOP",
+          "value": "2026-10-24T09:00:00Z"
+         },
+         {
+          "name": "JOB_NAME",
+          "valueFrom": {
+           "fieldRef": {
+            "fieldPath": "metadata.labels['batch.kubernetes.io/job-name']"
+           }
+          }
+         },
+         {
+          "name": "L3_CLEANUP_IMAGE",
+          "value": "${RUNTIME_IMAGE}"
+         },
+         {
+          "name": "L3_ROOT",
+          "value": "/mnt/.ephemeral/hicache-l3/qwen38-matrix"
+         },
+         {
+          "name": "PROMETHEUS_URL",
+          "value": "http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090"
+         },
+         {
+          "name": "GRAFANA_URL",
+          "value": "http://prometheus-grafana.monitoring.svc.cluster.local"
+         },
+         {
+          "name": "COMPOSE_FFMPEG_IMAGE",
+          "value": "${FFMPEG_IMAGE}"
+         },
+         {
+          "name": "HOME",
+          "value": "/work/home"
+         },
+         {
+          "name": "HF_HUB_OFFLINE",
+          "value": "1"
+         },
+         {
+          "name": "TRANSFORMERS_OFFLINE",
+          "value": "1"
+         }
+        ],
+        "image": "${BENCH_IMAGE}",
+        "imagePullPolicy": "IfNotPresent",
+        "name": "driver",
+        "resources": {
+         "limits": {
+          "cpu": "8",
+          "memory": "32Gi"
+         },
+         "requests": {
+          "cpu": "4",
+          "memory": "16Gi"
+         }
+        },
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "volumeMounts": [
+         {
+          "mountPath": "/etc/q38/driver",
+          "name": "driver",
+          "readOnly": true
+         },
+         {
+          "mountPath": "/etc/q38/dgds",
+          "name": "dgds",
+          "readOnly": true
+         },
+         {
+          "mountPath": "/etc/q38/plans",
+          "name": "plans",
+          "readOnly": true
+         },
+         {
+          "mountPath": "/work",
+          "name": "work"
+         }
+        ]
+       }
+      ],
+      "nodeSelector": {
+       "karpenter.sh/nodepool": "gpu-b200-cb"
+      },
+      "restartPolicy": "Never",
+      "securityContext": {
+       "fsGroup": 10001,
+       "runAsGroup": 10001,
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "serviceAccountName": "matrix-driver",
+      "terminationGracePeriodSeconds": 600,
+      "tolerations": [
+       {
+        "effect": "NoSchedule",
+        "key": "nvidia.com/gpu",
+        "operator": "Exists"
+       }
+      ],
+      "volumes": [
+       {
+        "configMap": {
+         "name": "q38-matrix-driver"
+        },
+        "name": "driver"
+       },
+       {
+        "configMap": {
+         "name": "q38-matrix-dgds"
+        },
+        "name": "dgds"
+       },
+       {
+        "configMap": {
+         "name": "q38-matrix-plans"
+        },
+        "name": "plans"
+       },
+       {
+        "emptyDir": {
+         "sizeLimit": "40Gi"
+        },
+        "name": "work"
+       }
+      ]
+     }
+    },
+    "ttlSecondsAfterFinished": 172800
+   }
+  }
+ ],
+ "job_w3_r32_cells": [
+  {
+   "apiVersion": "batch/v1",
+   "kind": "Job",
+   "metadata": {
+    "annotations": {
+     "q38-matrix/hard-stop": "2026-10-24T10:50:00Z",
+     "q38-matrix/rendered-at": "2026-10-23T22:00:00Z"
+    },
+    "labels": {
+     "app.kubernetes.io/name": "q38-matrix-driver",
+     "app.kubernetes.io/part-of": "qwen38-matrix",
+     "q38-matrix/plan": "plan-w3-r32-cells"
+    },
+    "name": "q38-matrix-w3-r32-cells",
+    "namespace": "bench"
+   },
+   "spec": {
+    "activeDeadlineSeconds": 46200,
+    "backoffLimit": 0,
+    "completions": 1,
+    "parallelism": 1,
+    "template": {
+     "metadata": {
+      "annotations": {
+       "karpenter.sh/do-not-disrupt": "true"
+      },
+      "labels": {
+       "app.kubernetes.io/name": "q38-matrix-driver",
+       "app.kubernetes.io/part-of": "qwen38-matrix",
+       "q38-matrix/plan": "plan-w3-r32-cells"
+      }
+     },
+     "spec": {
+      "containers": [
+       {
+        "args": [
+         "--plan",
+         "/etc/q38/plans/plan-w3-r32-cells.txt"
+        ],
+        "command": [
+         "python3",
+         "-I",
+         "/etc/q38/driver/matrix_driver.py"
+        ],
+        "env": [
+         {
+          "name": "AWS_REGION",
+          "value": "${AWS_REGION}"
+         },
+         {
+          "name": "AWS_DEFAULT_REGION",
+          "value": "${AWS_REGION}"
+         },
+         {
+          "name": "RESULTS_BUCKET",
+          "value": "${RESULTS_BUCKET}"
+         },
+         {
+          "name": "WORK",
+          "value": "/work"
+         },
+         {
+          "name": "DGD_DIR",
+          "value": "/etc/q38/dgds"
+         },
+         {
+          "name": "DRIVER_DIR",
+          "value": "/etc/q38/driver"
+         },
+         {
+          "name": "CB_NODE",
+          "value": "${CB_NODE}"
+         },
+         {
+          "name": "HARD_STOP",
+          "value": "2026-10-24T10:50:00Z"
+         },
+         {
+          "name": "JOB_NAME",
+          "valueFrom": {
+           "fieldRef": {
+            "fieldPath": "metadata.labels['batch.kubernetes.io/job-name']"
+           }
+          }
+         },
+         {
+          "name": "L3_CLEANUP_IMAGE",
+          "value": "${RUNTIME_IMAGE}"
+         },
+         {
+          "name": "L3_ROOT",
+          "value": "/mnt/.ephemeral/hicache-l3/qwen38-matrix"
+         },
+         {
+          "name": "PROMETHEUS_URL",
+          "value": "http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090"
+         },
+         {
+          "name": "GRAFANA_URL",
+          "value": "http://prometheus-grafana.monitoring.svc.cluster.local"
+         },
+         {
+          "name": "HOME",
+          "value": "/work/home"
+         },
+         {
+          "name": "HF_HUB_OFFLINE",
+          "value": "1"
+         },
+         {
+          "name": "TRANSFORMERS_OFFLINE",
+          "value": "1"
+         }
+        ],
+        "image": "${BENCH_IMAGE}",
+        "imagePullPolicy": "IfNotPresent",
+        "name": "driver",
+        "resources": {
+         "limits": {
+          "cpu": "8",
+          "memory": "32Gi"
+         },
+         "requests": {
+          "cpu": "4",
+          "memory": "16Gi"
+         }
+        },
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "volumeMounts": [
+         {
+          "mountPath": "/etc/q38/driver",
+          "name": "driver",
+          "readOnly": true
+         },
+         {
+          "mountPath": "/etc/q38/dgds",
+          "name": "dgds",
+          "readOnly": true
+         },
+         {
+          "mountPath": "/etc/q38/plans",
+          "name": "plans",
+          "readOnly": true
+         },
+         {
+          "mountPath": "/work",
+          "name": "work"
+         }
+        ]
+       }
+      ],
+      "nodeSelector": {
+       "karpenter.sh/nodepool": "gpu-b200-cb"
+      },
+      "restartPolicy": "Never",
+      "securityContext": {
+       "fsGroup": 10001,
+       "runAsGroup": 10001,
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "serviceAccountName": "matrix-driver",
+      "terminationGracePeriodSeconds": 600,
+      "tolerations": [
+       {
+        "effect": "NoSchedule",
+        "key": "nvidia.com/gpu",
+        "operator": "Exists"
+       }
+      ],
+      "volumes": [
+       {
+        "configMap": {
+         "name": "q38-matrix-driver"
+        },
+        "name": "driver"
+       },
+       {
+        "configMap": {
+         "name": "q38-matrix-dgds"
+        },
+        "name": "dgds"
+       },
+       {
+        "configMap": {
+         "name": "q38-matrix-plans"
+        },
+        "name": "plans"
+       },
+       {
+        "emptyDir": {
+         "sizeLimit": "40Gi"
+        },
+        "name": "work"
+       }
+      ]
+     }
+    },
+    "ttlSecondsAfterFinished": 172800
+   }
+  }
+ ],
+ "preflight": [
+  {
+   "binary_keys": [],
+   "data_keys": [
+    "capture.py",
+    "compose.sh"
+   ],
+   "kind": "ConfigMap",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/name": "q38-matrix-driver",
+     "app.kubernetes.io/part-of": "qwen38-matrix"
+    },
+    "name": "q38-take-capture",
+    "namespace": "bench"
+   }
+  },
+  {
+   "apiVersion": "batch/v1",
+   "kind": "Job",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/name": "take-preflight",
+     "app.kubernetes.io/part-of": "qwen38-matrix",
+     "q38-matrix/run-id": "q38-e7"
+    },
+    "name": "q38-take-preflight-q38-e7",
+    "namespace": "bench"
+   },
+   "spec": {
+    "activeDeadlineSeconds": 900,
+    "backoffLimit": 0,
+    "template": {
+     "metadata": {
+      "labels": {
+       "app.kubernetes.io/name": "take-preflight",
+       "app.kubernetes.io/part-of": "qwen38-matrix",
+       "q38-matrix/run-id": "q38-e7"
+      }
+     },
+     "spec": {
+      "containers": [
+       {
+        "args": [
+         "set -euo pipefail\npython3 -m pip install --user --no-cache-dir --disable-pip-version-check --quiet playwright==1.64.0 boto3==1.43.116\nexec python3 /capture/capture.py\n"
+        ],
+        "command": [
+         "/bin/bash",
+         "-c"
+        ],
+        "env": [
+         {
+          "name": "HOME",
+          "value": "/home/pwuser"
+         },
+         {
+          "name": "PIP_BREAK_SYSTEM_PACKAGES",
+          "value": "1"
+         },
+         {
+          "name": "CHECK_ONLY",
+          "value": "1"
+         },
+         {
+          "name": "TAKE_ID",
+          "value": "preflight"
+         },
+         {
+          "name": "CHECK_NAMESPACES",
+          "value": "s-agg,s-dis-hic"
+         },
+         {
+          "name": "GRAFANA_URL",
+          "value": "http://prometheus-grafana.monitoring.svc.cluster.local"
+         },
+         {
+          "name": "GRAFANA_USER",
+          "value": "admin"
+         },
+         {
+          "name": "GRAFANA_PASSWORD",
+          "valueFrom": {
+           "secretKeyRef": {
+            "key": "password",
+            "name": "demo-grafana-auth"
+           }
+          }
+         },
+         {
+          "name": "DASHBOARD_UID",
+          "value": "demo-take"
+         },
+         {
+          "name": "OUT_DIR",
+          "value": "/out"
+         },
+         {
+          "name": "S3_PREFIX",
+          "value": "takes/q38-e7/_preflight"
+         },
+         {
+          "name": "RESULTS_BUCKET",
+          "value": "${RESULTS_BUCKET}"
+         },
+         {
+          "name": "AWS_REGION",
+          "value": "${AWS_REGION}"
+         },
+         {
+          "name": "AWS_DEFAULT_REGION",
+          "value": "${AWS_REGION}"
+         }
+        ],
+        "image": "mcr.microsoft.com/playwright/python:v1.64.0-noble@sha256:684df257a1fa0ef3fa288239819984008f560e8f8db5b635ee9e2a50cbcd2e23",
+        "imagePullPolicy": "IfNotPresent",
+        "name": "capture",
+        "resources": {
+         "limits": {
+          "cpu": "3",
+          "memory": "6Gi"
+         },
+         "requests": {
+          "cpu": "1",
+          "memory": "3Gi"
+         }
+        },
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "volumeMounts": [
+         {
+          "mountPath": "/capture",
+          "name": "capture-script",
+          "readOnly": true
+         },
+         {
+          "mountPath": "/dev/shm",
+          "name": "dshm"
+         },
+         {
+          "mountPath": "/out",
+          "name": "out"
+         }
+        ]
+       }
+      ],
+      "initContainers": [
+       {
+        "command": [
+         "/bin/bash",
+         "-c",
+         "set -euo pipefail\naws --version\njq --version\nstat --version >/dev/null\n"
+        ],
+        "env": [
+         {
+          "name": "HOME",
+          "value": "/tmp"
+         }
+        ],
+        "image": "public.ecr.aws/aws-cli/aws-cli:2.38.1@sha256:733d5be1015825e4038c6016f3fa9954868ddee1f611b73be795a9cc2e706bfd",
+        "imagePullPolicy": "IfNotPresent",
+        "name": "aws-cli",
+        "resources": {
+         "limits": {
+          "memory": "1Gi"
+         },
+         "requests": {
+          "cpu": "100m",
+          "memory": "256Mi"
+         }
+        },
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        }
+       },
+       {
+        "command": [
+         "/bin/bash",
+         "-c",
+         "set -euo pipefail\nv=\"$(ffmpeg -hide_banner -version)\"; echo \"${v%%$'\\n'*}\"\nf=\"$(ffmpeg -hide_banner -filters)\"; for x in drawtext hstack vstack tpad trim; do grep -q \" $x \" <<<\"$f\"; done\ne=\"$(ffmpeg -hide_banner -encoders)\"; grep -q libx264 <<<\"$e\"\ntest -s /usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf\njq --version\necho ffmpeg-ok\n"
+        ],
+        "env": [
+         {
+          "name": "HOME",
+          "value": "/tmp"
+         }
+        ],
+        "image": "${FFMPEG_IMAGE}",
+        "imagePullPolicy": "IfNotPresent",
+        "name": "ffmpeg",
+        "resources": {
+         "limits": {
+          "memory": "1Gi"
+         },
+         "requests": {
+          "cpu": "100m",
+          "memory": "256Mi"
+         }
+        },
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        }
+       }
+      ],
+      "nodeSelector": {
+       "karpenter.sh/nodepool": "cpu-demo"
+      },
+      "restartPolicy": "Never",
+      "securityContext": {
+       "fsGroup": 1001,
+       "runAsGroup": 1001,
+       "runAsNonRoot": true,
+       "runAsUser": 1001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "serviceAccountName": "matrix-driver",
+      "terminationGracePeriodSeconds": 10,
+      "volumes": [
+       {
+        "configMap": {
+         "name": "q38-take-capture"
+        },
+        "name": "capture-script"
+       },
+       {
+        "emptyDir": {
+         "medium": "Memory",
+         "sizeLimit": "1Gi"
+        },
+        "name": "dshm"
+       },
+       {
+        "emptyDir": {
+         "sizeLimit": "8Gi"
+        },
+        "name": "out"
+       }
+      ]
+     }
+    },
+    "ttlSecondsAfterFinished": 86400
+   }
+  }
+ ],
+ "watchdog": [
+  {
+   "binary_keys": [],
+   "data_keys": [
+    "watchdog.py"
+   ],
+   "kind": "ConfigMap",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/name": "q38-matrix-watchdog",
+     "app.kubernetes.io/part-of": "qwen38-matrix"
+    },
+    "name": "q38-matrix-watchdog",
+    "namespace": "bench"
+   }
+  },
+  {
+   "apiVersion": "batch/v1",
+   "kind": "CronJob",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/name": "q38-matrix-watchdog",
+     "app.kubernetes.io/part-of": "qwen38-matrix"
+    },
+    "name": "q38-matrix-watchdog",
+    "namespace": "bench"
+   },
+   "spec": {
+    "concurrencyPolicy": "Forbid",
+    "failedJobsHistoryLimit": 6,
+    "jobTemplate": {
+     "metadata": {
+      "labels": {
+       "app.kubernetes.io/name": "q38-matrix-watchdog",
+       "app.kubernetes.io/part-of": "qwen38-matrix"
+      }
+     },
+     "spec": {
+      "activeDeadlineSeconds": 900,
+      "backoffLimit": 1,
+      "template": {
+       "metadata": {
+        "labels": {
+         "app.kubernetes.io/name": "q38-matrix-watchdog",
+         "app.kubernetes.io/part-of": "qwen38-matrix"
+        }
+       },
+       "spec": {
+        "containers": [
+         {
+          "command": [
+           "python3",
+           "-I",
+           "/etc/q38/watchdog/watchdog.py"
+          ],
+          "env": [
+           {
+            "name": "HARD_STOP",
+            "value": "2026-10-24T04:30:00Z"
+           },
+           {
+            "name": "WINDOW_END",
+            "value": "2026-10-24T05:00:00Z"
+           },
+           {
+            "name": "WINDOWS",
+            "value": "2026-10-24T04:30:00Z/2026-10-24T05:00:00Z,2026-10-24T09:00:00Z/2026-10-24T10:00:00Z"
+           },
+           {
+            "name": "HOME",
+            "value": "/tmp"
+           }
+          ],
+          "image": "${BENCH_IMAGE}",
+          "imagePullPolicy": "IfNotPresent",
+          "name": "watchdog",
+          "resources": {
+           "limits": {
+            "memory": "256Mi"
+           },
+           "requests": {
+            "cpu": "100m",
+            "memory": "128Mi"
+           }
+          },
+          "securityContext": {
+           "allowPrivilegeEscalation": false,
+           "capabilities": {
+            "drop": [
+             "ALL"
+            ]
+           }
+          },
+          "volumeMounts": [
+           {
+            "mountPath": "/etc/q38/watchdog",
+            "name": "watchdog",
+            "readOnly": true
+           }
+          ]
+         }
+        ],
+        "nodeSelector": {
+         "karpenter.sh/nodepool": "gpu-b200-cb"
+        },
+        "restartPolicy": "Never",
+        "securityContext": {
+         "runAsGroup": 10001,
+         "runAsNonRoot": true,
+         "runAsUser": 10001,
+         "seccompProfile": {
+          "type": "RuntimeDefault"
+         }
+        },
+        "serviceAccountName": "matrix-driver",
+        "tolerations": [
+         {
+          "effect": "NoSchedule",
+          "key": "nvidia.com/gpu",
+          "operator": "Exists"
+         }
+        ],
+        "volumes": [
+         {
+          "configMap": {
+           "name": "q38-matrix-watchdog"
+          },
+          "name": "watchdog"
+         }
+        ]
+       }
+      },
+      "ttlSecondsAfterFinished": 172800
+     }
+    },
+    "schedule": "*/5 4,9 24 10 *",
+    "startingDeadlineSeconds": 120,
+    "successfulJobsHistoryLimit": 6,
+    "timeZone": "Etc/UTC"
+   }
+  }
+ ],
+ "watchdog_w3late": [
+  {
+   "binary_keys": [],
+   "data_keys": [
+    "watchdog.py"
+   ],
+   "kind": "ConfigMap",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/name": "q38-matrix-watchdog",
+     "app.kubernetes.io/part-of": "qwen38-matrix"
+    },
+    "name": "q38-matrix-watchdog",
+    "namespace": "bench"
+   }
+  },
+  {
+   "apiVersion": "batch/v1",
+   "kind": "CronJob",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/name": "q38-matrix-watchdog",
+     "app.kubernetes.io/part-of": "qwen38-matrix"
+    },
+    "name": "q38-matrix-watchdog",
+    "namespace": "bench"
+   },
+   "spec": {
+    "concurrencyPolicy": "Forbid",
+    "failedJobsHistoryLimit": 6,
+    "jobTemplate": {
+     "metadata": {
+      "labels": {
+       "app.kubernetes.io/name": "q38-matrix-watchdog",
+       "app.kubernetes.io/part-of": "qwen38-matrix"
+      }
+     },
+     "spec": {
+      "activeDeadlineSeconds": 900,
+      "backoffLimit": 1,
+      "template": {
+       "metadata": {
+        "labels": {
+         "app.kubernetes.io/name": "q38-matrix-watchdog",
+         "app.kubernetes.io/part-of": "qwen38-matrix"
+        }
+       },
+       "spec": {
+        "containers": [
+         {
+          "command": [
+           "python3",
+           "-I",
+           "/etc/q38/watchdog/watchdog.py"
+          ],
+          "env": [
+           {
+            "name": "HARD_STOP",
+            "value": "2026-10-24T04:30:00Z"
+           },
+           {
+            "name": "WINDOW_END",
+            "value": "2026-10-24T05:00:00Z"
+           },
+           {
+            "name": "WINDOWS",
+            "value": "2026-10-24T04:30:00Z/2026-10-24T05:00:00Z,2026-10-24T09:00:00Z/2026-10-24T10:00:00Z,2026-10-24T10:50:00Z/2026-10-24T11:20:00Z"
+           },
+           {
+            "name": "HOME",
+            "value": "/tmp"
+           }
+          ],
+          "image": "${BENCH_IMAGE}",
+          "imagePullPolicy": "IfNotPresent",
+          "name": "watchdog",
+          "resources": {
+           "limits": {
+            "memory": "256Mi"
+           },
+           "requests": {
+            "cpu": "100m",
+            "memory": "128Mi"
+           }
+          },
+          "securityContext": {
+           "allowPrivilegeEscalation": false,
+           "capabilities": {
+            "drop": [
+             "ALL"
+            ]
+           }
+          },
+          "volumeMounts": [
+           {
+            "mountPath": "/etc/q38/watchdog",
+            "name": "watchdog",
+            "readOnly": true
+           }
+          ]
+         }
+        ],
+        "nodeSelector": {
+         "karpenter.sh/nodepool": "gpu-b200-cb"
+        },
+        "restartPolicy": "Never",
+        "securityContext": {
+         "runAsGroup": 10001,
+         "runAsNonRoot": true,
+         "runAsUser": 10001,
+         "seccompProfile": {
+          "type": "RuntimeDefault"
+         }
+        },
+        "serviceAccountName": "matrix-driver",
+        "tolerations": [
+         {
+          "effect": "NoSchedule",
+          "key": "nvidia.com/gpu",
+          "operator": "Exists"
+         }
+        ],
+        "volumes": [
+         {
+          "configMap": {
+           "name": "q38-matrix-watchdog"
+          },
+          "name": "watchdog"
+         }
+        ]
+       }
+      },
+      "ttlSecondsAfterFinished": 172800
+     }
+    },
+    "schedule": "*/5 4,9,10,11 24 10 *",
+    "startingDeadlineSeconds": 120,
+    "successfulJobsHistoryLimit": 6,
+    "timeZone": "Etc/UTC"
+   }
+  }
+ ]
+}

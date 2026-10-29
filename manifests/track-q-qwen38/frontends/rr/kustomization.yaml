@@ -1,0 +1,6 @@
+# R off: the Track Q Frontend, round-robin, no namespace (50-toggle-router.sh rr <namespace> applies it
+# server-side onto the live DGD q38; only the Frontend rolls).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../frontend

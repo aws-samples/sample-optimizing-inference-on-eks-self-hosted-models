@@ -1,0 +1,6 @@
+# Cell S6 = t-dis-hic + round-robin Frontend (PD 4P4D TP1 over NIXL LIBFABRIC/EFA, HiCache L2 400 GB + L3 on prefill).
+# Rendered to ../../rendered/S6.yaml by scripts/render-track-q.sh.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../overlays/t-dis-hic

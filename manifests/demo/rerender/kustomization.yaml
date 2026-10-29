@@ -1,0 +1,17 @@
+# The compose script of the take re-render tool (rerender.py), applied once to bench:
+#   kubectl kustomize manifests/demo/rerender | kubectl apply -f -
+# It renders only the ConfigMap demo-rerender-compose (compose.sh), mounted by the compose Job. The Jobs themselves
+# are per take: `python3 manifests/demo/rerender/rerender.py jobs ...` writes them as JSON (kubectl create -f).
+# No bucket, region or registry here: rerender.py reads them from the environment or --platform-env.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: bench
+configMapGenerator:
+  - name: demo-rerender-compose
+    files:
+      - compose.sh
+    options:
+      disableNameSuffixHash: true
+      labels:
+        app.kubernetes.io/name: demo-rerender
+        app.kubernetes.io/part-of: qwen38-matrix

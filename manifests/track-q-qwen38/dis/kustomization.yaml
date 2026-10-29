@@ -1,0 +1,13 @@
+# PD shape building block: Frontend + 4 prefill pods + 4 decode pods (TP1 each), HiCache off, no PD flags yet
+# (topologies/t-dis* add components/pd-efa). No namespace: topologies/<t> set it.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../base
+patches:
+  - path: pd-roles.yaml
+    target:
+      group: nvidia.com
+      version: v1beta1
+      kind: DynamoGraphDeployment
+      name: q38

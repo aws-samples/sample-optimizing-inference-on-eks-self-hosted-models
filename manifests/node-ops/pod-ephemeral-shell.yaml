@@ -1,0 +1,44 @@
+# Idle pod on the GPU node with /mnt/.ephemeral mounted. The scripts reach it by its fixed
+# name (`kubectl exec -n node-ops ephemeral-shell`): weights marker check, L3 wipe while a
+# topology is scaled to zero. A fixed name keeps the driver RBAC at pods get + pods/exec.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ephemeral-shell
+  labels:
+    app.kubernetes.io/name: ephemeral-shell
+    app.kubernetes.io/part-of: dynamo-sample
+spec:
+  nodeSelector:
+    karpenter.sh/nodepool: gpu-b200-cb
+  tolerations:
+    - key: nvidia.com/gpu
+      operator: Exists
+      effect: NoSchedule
+  restartPolicy: Always
+  terminationGracePeriodSeconds: 5
+  containers:
+    - name: shell
+      image: public.ecr.aws/aws-cli/aws-cli:2.38.1@sha256:733d5be1015825e4038c6016f3fa9954868ddee1f611b73be795a9cc2e706bfd
+      imagePullPolicy: IfNotPresent
+      command:
+        - /bin/bash
+        - -c
+        - trap 'exit 0' TERM; while true; do sleep 3600 & wait $!; done
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          memory: 256Mi
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+      volumeMounts:
+        - name: ephemeral
+          mountPath: /mnt/.ephemeral
+  volumes:
+    - name: ephemeral
+      hostPath:
+        path: /mnt/.ephemeral
+        type: Directory

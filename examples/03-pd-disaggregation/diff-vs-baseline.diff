@@ -1,0 +1,98 @@
+--- a/00-baseline/rendered.yaml#metadata
++++ b/03-pd-disaggregation/rendered.yaml#metadata
+@@ -7,3 +7,3 @@
+   name: q38
+-  namespace: s-agg
++  namespace: s-dis
+ spec:
+--- a/00-baseline/rendered.yaml#Worker
++++ b/03-pd-disaggregation/rendered.yaml#prefill
+@@ -1,2 +1,2 @@
+-  - name: Worker
++  - name: prefill
+     podTemplate:
+@@ -14,2 +14,52 @@
+             ulimit -n 1048576 || true
++            # GPU pin: privileged (EFA) sees every host GPU, so CUDA would take GPU 0 (another pod's). Pin it,
++            # by UUID in ascending NVML index order, to the GPUs the device plugin allocated
++            # (NVIDIA_VISIBLE_DEVICES: a directory of index entries, or a comma list of indices).
++            # EXPECTED_GPUS is this container's nvidia.com/gpu limit.
+# ... 44 added lines omitted (GPU-pin preamble)
++            export CUDA_VISIBLE_DEVICES="$cvd"
++            echo "GPU pin: indices${sorted} -> CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES" >&2
+             exec python3 -m dynamo.sglang "$@"
+@@ -43,2 +93,8 @@
+           - flush_cache:tm
++          - --disaggregation-mode
++          - prefill
++          - --disaggregation-transfer-backend
++          - nixl
++          - --disaggregation-bootstrap-port
++          - "12345"
+           command:
+@@ -73,2 +129,16 @@
+             value: /compile-cache/sglang
++          - name: SGLANG_DISAGGREGATION_NIXL_BACKEND
++            value: LIBFABRIC
++          - name: FI_PROVIDER
++            value: efa
++          - name: FI_EFA_USE_DEVICE_RDMA
++            value: "1"
++          - name: FI_EFA_ENABLE_SHM_TRANSFER
++            value: "0"
++          - name: FI_EFA_ENABLE_SHM
++            value: "0"
++          - name: LD_LIBRARY_PATH
++            value: /opt/amazon/efa/lib:/opt/dynamo/nixl-ucx-compat:/opt/dynamo/nixl-capi:/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/cuda/lib64
++          - name: EXPECTED_GPUS
++            value: "1"
+           image: nvcr.io/nvidia/ai-dynamo/sglang-runtime:1.6.0-efa@sha256:d574951b0dbd037bdcaabe121431a83cd047a5c106cb243fe6f2f97f2e456cd2
+@@ -90,2 +160,3 @@
+               nvidia.com/gpu: "1"
++              vpc.amazonaws.com/efa: "1"
+             requests:
+@@ -94,2 +165,3 @@
+               nvidia.com/gpu: "1"
++              vpc.amazonaws.com/efa: "1"
+           securityContext:
+@@ -99,2 +171,3 @@
+               - SYS_RESOURCE
++            privileged: true
+             runAsGroup: 0
+@@ -179,5 +252,5 @@
+           name: compile-cache
+-    replicas: 8
++    replicas: 4
+     runtimeVersionOverride: 1.6.0
+     sharedMemorySize: 16Gi
+-    type: worker
++    type: prefill
+--- a/00-baseline/rendered.yaml#Worker
++++ b/03-pd-disaggregation/rendered.yaml#decode
+@@ -1,2 +1,2 @@
+# ... 1 changed lines identical to prefill omitted
++  - name: decode
+     podTemplate:
+# ... 50 added lines omitted (GPU-pin preamble)
+@@ -43,2 +93,8 @@
+           - flush_cache:tm
+# ... 1 changed lines identical to prefill omitted
++          - decode
+# ... 4 changed lines identical to prefill omitted
+           command:
+# ... 14 changed lines identical to prefill omitted
+@@ -88,4 +158,5 @@
+             limits:
+-              memory: 128Gi
++              memory: 64Gi
+               nvidia.com/gpu: "1"
+# ... 1 changed lines identical to prefill omitted
+             requests:
+# ... 2 changed lines identical to prefill omitted
+@@ -179,5 +252,5 @@
+           name: compile-cache
+# ... 2 changed lines identical to prefill omitted
+     runtimeVersionOverride: 1.6.0
+     sharedMemorySize: 16Gi
+# ... 1 changed lines identical to prefill omitted
++    type: decode

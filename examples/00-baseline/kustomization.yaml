@@ -1,0 +1,6 @@
+# examples/00-baseline = Track Q cell S0 (aggregated, round-robin, no HiCache).
+# Read-only view: manifests/track-q-qwen38/cells/S0 is the source of truth. Render with scripts/render-examples.sh.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../manifests/track-q-qwen38/cells/S0

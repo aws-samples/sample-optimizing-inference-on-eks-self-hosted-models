@@ -1,0 +1,19 @@
+# plan-w3-r25-cells (W3-16K): the six cells S1 to S6 (unchanged manifests), n=1, at 25 req/s, same trace and SLO as plan-w3-r25.
+# n=1 per cell and rate; a different workload from W2, never pooled with it.
+# Order groups the topologies to save boots: S1 (t-agg kv), S2/S4 (t-agg-hic rr/kv), S3/S5 (t-pd rr/kv), S6 (t-pd-hic rr).
+# hard_stop is the instant of the recorded session: launch with render_driver.py --hard-stop-in.
+# drain_s lowered to 1500 s as a guard estimate only (measured r25 runs: S0 ~20 min total incl. drain, S7 ~13 min).
+run_id q38-w3-r25c
+hard_stop 2026-10-24T09:00:00Z
+on_failure continue
+w2 trace=s3://${RESULTS_BUCKET}/matrix/inputs/w3-16k-r25-49d83f37/w3-16k-r25.jsonl trace_sha256=49d83f37410f6205eccfe090f50dd47082cac2580ba410c1a11cc39743f83f21 sidecar=s3://${RESULTS_BUCKET}/matrix/inputs/w3-16k-r25-49d83f37/w3-16k-r25.side.jsonl sidecar_sha256=ef4bdd276b8cc9497d9a760f94fccabf00622a34458b2c0b92e53a9cc314ec28 frozen=yes
+tokenizer prefix=s3://${RESULTS_BUCKET}/matrix/inputs/tokenizer-qwen38-27b-fp8-017b9c7a/ sums_sha256=7c8e0b6c2c49bf09b305f0a2902aa2250c11302ea1a859ea7bca3f4d9f8c79be
+slo ttft_s=1.0 itl_ms=25 cold_factor=1 cold_prefill_tok_s=7936
+estimate boot_s=900 reset_s=240 drain_s=1500 probe_s=300   # (I) guard only
+run S1 1 label=w3-16k
+run S2 1 label=w3-16k
+run S4 1 label=w3-16k
+run S3 1 label=w3-16k
+run S5 1 label=w3-16k
+run S6 1 label=w3-16k
+teardown

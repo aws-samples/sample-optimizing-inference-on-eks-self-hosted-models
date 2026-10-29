@@ -1,0 +1,6 @@
+# examples/04-all-three = Track Q cell S7 (prefill/decode + HiCache on prefill + KV router).
+# Read-only view: manifests/track-q-qwen38/cells/S7 is the source of truth. Render with scripts/render-examples.sh.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../manifests/track-q-qwen38/cells/S7

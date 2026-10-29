@@ -1,0 +1,107 @@
+# Spec 8.4 step 2: S3 -> NVMe prefetch at block start, pinned to the GPU node.
+# Lays the weights out as a Hugging Face hub cache (HF_HUB_CACHE=/models/hub in the
+# workers; refs/main holds the pinned revision) and writes the .done marker LAST.
+# The ServiceAccount and its Pod Identity (read-only on the model bucket) are owned by
+# Terraform (iam-model-access.tf, the cluster stack). The defaults below are the model of the platform
+# config (MODEL_ID, MODEL_REVISION and MODEL_S3_URI of manifests/config, as add-worker.yaml pins it; the
+# bucket comes from the config through replacements); 11-prefetch.sh sets MODEL_S3_URI/MODEL_REVISION/
+# MODEL_CACHE_REPO per run.
+# Idempotent: exits at once when the marker of the pinned revision is present (each full
+# read of ~465 GB costs retrieval once the prefix is in STANDARD_IA), unless FORCE=1.
+# The CRT S3 client (target_bandwidth 40Gb/s) keeps the ~465 GB prefetch inside the H+2 checkpoint.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: model-prefetch
+  labels:
+    app.kubernetes.io/name: model-prefetch
+    app.kubernetes.io/part-of: dynamo-sample
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 7200
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: model-prefetch
+    spec:
+      serviceAccountName: model-prefetch
+      restartPolicy: OnFailure
+      nodeSelector:
+        karpenter.sh/nodepool: gpu-b200-cb
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: prefetch
+          image: public.ecr.aws/aws-cli/aws-cli:2.38.1@sha256:733d5be1015825e4038c6016f3fa9954868ddee1f611b73be795a9cc2e706bfd
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/bash
+            - -c
+          args:
+            - |
+              set -euo pipefail
+              src="${MODEL_S3_URI%/}/"
+              repo="/mnt/.ephemeral/models/hub/$MODEL_CACHE_REPO"
+              snap="$repo/snapshots/$MODEL_REVISION"
+              if [ "$FORCE" != "1" ] && grep -qx "revision=$MODEL_REVISION" "$repo/.done" 2>/dev/null; then
+                echo "already present: $(tr '\n' ' ' < "$repo/.done")"
+                exit 0
+              fi
+              rm -f "$repo/.done"
+              mkdir -p "$snap" "$repo/refs"
+              echo "source=$src target=$snap"
+              # _manifest.json was staged in another region and names that bucket: never read it.
+              aws s3 ls "${src}.done" > /dev/null || { echo "FATAL: ${src}.done missing (staging incomplete)" >&2; exit 1; }
+              # FT-4c: force the CRT S3 client with an explicit target bandwidth (measured ~1.7 GB/s
+              # vs ~80 MB/s with the classic knobs). `auto` silently falls back to classic off a
+              # fixed instance-type list; the classic knobs (max_concurrent_requests,
+              # multipart_chunksize, ...) are not set because CRT ignores or regresses on them.
+              aws configure set default.s3.preferred_transfer_client crt
+              aws configure set default.s3.target_bandwidth 40Gb/s
+              start=$(date +%s)
+              aws s3 sync "$src" "$snap/" --delete --no-progress --only-show-errors --exclude "_manifest.json" --exclude ".done"
+              want=$(aws s3 ls --recursive "$src" | awk '$4 != "" && $4 !~ /(^|\/)(_manifest\.json|\.done)$/ {n++; b+=$3} END {printf "%d files %.0f bytes", n, b}')
+              have=$(find "$snap" -type f -printf '%s\n' | awk '{n++; b+=$1} END {printf "%d files %.0f bytes", n, b}')
+              if [ "$want" != "$have" ]; then
+                echo "FATAL: source has $want, local has $have" >&2
+                exit 1
+              fi
+              printf '%s' "$MODEL_REVISION" > "$repo/refs/main"
+              elapsed=$(( $(date +%s) - start ))
+              printf 'revision=%s\nsource=%s\ncontent=%s\nelapsed_s=%s\n' "$MODEL_REVISION" "$src" "$have" "$elapsed" > "$repo/.done.partial"
+              mv "$repo/.done.partial" "$repo/.done"
+              echo "prefetch complete: $have in ${elapsed}s"
+          env:
+            - name: MODEL_S3_URI
+              value: s3://MODEL_BUCKET/Qwen/Qwen3.8-27B-FP8/017b9c7af6b5689d5dd426a76e0bc077eb5ca20a/
+            - name: MODEL_REVISION
+              value: 017b9c7af6b5689d5dd426a76e0bc077eb5ca20a
+            - name: MODEL_CACHE_REPO
+              value: models--Qwen--Qwen3.8-27B-FP8
+            - name: AWS_REGION
+              value: PLACEHOLDER
+            # "1" re-syncs even when the marker of this revision is already on the node.
+            - name: FORCE
+              value: "0"
+            - name: HOME
+              value: /tmp
+          resources:
+            requests:
+              cpu: "8"
+              memory: 8Gi
+            limits:
+              memory: 16Gi
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+          volumeMounts:
+            - name: models
+              mountPath: /mnt/.ephemeral/models
+      volumes:
+        - name: models
+          hostPath:
+            path: /mnt/.ephemeral/models
+            type: DirectoryOrCreate

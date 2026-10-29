@@ -1,0 +1,25 @@
+# The namespace (PSA baseline) is created by the cluster Terraform. The bench image registry
+# comes from the single config source (manifests/config/platform.env, BENCH_REPO) through a
+# replacement; the digest is a placeholder until FT-11 pushes the image.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: bench
+resources:
+  - serviceaccount.yaml
+  - deployment.yaml
+components:
+  - ../config
+replacements:
+  - source:
+      kind: ConfigMap
+      name: platform-config
+      fieldPath: data.BENCH_REPO
+    targets:
+      - select:
+          kind: Deployment
+          name: bench
+        fieldPaths:
+          - spec.template.spec.containers.[name=bench].image
+        options:
+          delimiter: "@"
+          index: 0

@@ -1,0 +1,2 @@
+{"metadata": {"benchmark_phase": "warmup", "request_start_ns": 1760000000000000000, "request_end_ns": 1760000003000000000, "was_cancelled": false}, "metrics": {"time_to_first_token": {"value": 123.0, "unit": "ms"}}}
+{"metadata": {"benchmark_phase": "warmup", "request_start_ns": 1760000001000000000, "request_end_ns": 1760000004500000000, "was_cancelled": false}, "metrics": {"time_to_first_token": {"value": 123.0, "unit": "ms"}}}

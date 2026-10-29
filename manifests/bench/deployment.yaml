@@ -1,0 +1,73 @@
+# Spec 10.1: bench pod (aiperf + demo-bench) on the cpu-demo pool, for interactive runs
+# through `kubectl exec deploy/bench` (the matrix driver runs its own bench Jobs).
+# The container refuses to start unless the image carries the pinned aiperf.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bench
+  labels:
+    app.kubernetes.io/name: bench
+    app.kubernetes.io/part-of: dynamo-sample
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: bench
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bench
+      annotations:
+        karpenter.sh/do-not-disrupt: "true"
+    spec:
+      serviceAccountName: bench
+      nodeSelector:
+        karpenter.sh/nodepool: cpu-demo
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: bench
+          image: REGISTRY/dynamo-sample/bench@sha256:ff31929ce363efec1d24f603cee4ae47c5fc44374a6ec1d397cc25697750637a
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/bash
+            - -c
+          args:
+            - |
+              set -euo pipefail
+              want="${AIPERF_REQUIREMENT#aiperf==}"
+              have=$(python -c 'import importlib.metadata as m; print(m.version("aiperf"))')
+              if [ "$have" != "$want" ]; then
+                echo "FATAL: image has aiperf $have, the series is pinned to $AIPERF_REQUIREMENT" >&2
+                exit 1
+              fi
+              echo "aiperf $have ready"
+              exec sleep infinity
+          env:
+            - name: AIPERF_REQUIREMENT
+              value: aiperf==0.13.0
+          resources:
+            requests:
+              cpu: "4"
+              memory: 16Gi
+            limits:
+              memory: 32Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: results
+              mountPath: /home/bench/results
+      volumes:
+        - name: results
+          emptyDir:
+            sizeLimit: 20Gi

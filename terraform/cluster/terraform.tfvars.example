@@ -1,0 +1,101 @@
+# Copy to terraform.tfvars (gitignored), fill the REQUIRED values and adjust the rest.
+# Every user-facing choice of the stack is here; terraform/README.md explains each one.
+# Terraform never buys capacity: reservations are bought first and only referenced here.
+# Needs Terraform >= 1.12 (|| short-circuit, cross-variable validations, S3 use_lockfile; latest tested 1.17.0); older versions fail at init/validate.
+
+# ----------------------------------------------------------------------------- stack (REQUIRED: region)
+aws_region = "us-east-2"
+
+# project_name = "dynamo-sample"      # ECR repo prefix and Project tag
+# cluster_name = "dynamo-sample-use2" # null = <project_name>-<region code of the AZ IDs>; keep it identical
+#                                     # in ../bootstrap (bucket names derive from it)
+
+# Extra tags: keys and values use only letters, digits, spaces and _ . : / = + - @ (the plan refuses others).
+tags = {}
+
+# ----------------------------------------------------------------------------- EKS API access (REQUIRED)
+# Your egress IPs, e.g. ["203.0.113.10/32"] (RFC 5737 documentation range). The placeholder below fails
+# validation on purpose until you replace it. A /0 is rejected unless allow_open_eks_api = true (API
+# open to any IP; IAM + an EKS access entry still required).
+eks_public_access_cidrs = ["<YOUR_EGRESS_IP>/32"]
+allow_open_eks_api      = false
+
+# ----------------------------------------------------------------------------- GPU (REQUIRED: types)
+# P or G instance types. Types with the same GPU, GPU memory, GPU count, network cards and EFA
+# interfaces share one NodeClass/NodePool (pool gpu-<gpu>-<cb|odcr|od|spot>; output gpu_pools).
+# Validated end to end: p6-b200.48xlarge (8 EFA, Capacity Block) = pool gpu-b200-cb, the only shape
+# the Track Q manifests select. Others are supported by Terraform, manifests untested.
+# Pool names can change: when a second group with the same GPU joins (e.g. adding a g6e size with
+# another GPU count), every group of that GPU gets a <gpus>x<GiB>g[-efa<n>][-nc<n>] suffix, so the
+# existing NodeClass/NodePool is replaced (its nodes drain). Check `terraform plan` before applying.
+gpu_instance_types = ["p6-b200.48xlarge"]
+# gpu_instance_types = ["g6e.12xlarge", "g6e.48xlarge"]  # two L40S pools (1 and 4 EFA)
+
+# capacity-block | odcr | on-demand | spot
+gpu_capacity_type = "capacity-block"
+
+# capacity-block / odcr: the reservation IDs you already bought, e.g. ["cr-<17 hex>"].
+# on-demand / spot: [] (on-demand and spot P/G capacity is not guaranteed at launch).
+capacity_reservation_ids = []
+
+# [] = derived: capacity-block -> the AZ of each block; on-demand/spot -> the first VPC AZ offering
+# every type (existence, not capacity). REQUIRED for odcr (the AZ IDs of the reservations).
+gpu_az_ids = []
+# gpu_az_ids = ["use2-az1", "use2-az2"]  # several AZs = multi-AZ GPU pools
+
+# null = derived: capacity-block -> instances of the live blocks; on-demand/spot -> 1 node per pool
+# (check gpu_pools[*].max_nodes). REQUIRED for odcr.
+# gpu_max_nodes = 2
+
+# gpu_efa                    = "auto"  # auto = static EFA layout where the type has EFA; off = none
+# gpu_pod_ipv4_prefix_count  = 4       # /28 prefixes on the EFA node's primary ENI (64 pod IPs)
+# gpu_ephemeral_storage_size = "256Gi" # below the instance store -> NVMe RAID0; above -> EBS
+# gpu_expire_after           = "480h"  # null = 480h reserved, 168h on-demand/spot
+# gpu_consolidate_after      = "15m"   # on-demand/spot only
+# gpu_product_overrides      = { H100 = "NVIDIA-H100-80GB-HBM3" }
+# primary_az_id              = "use2-az1" # cpu-demo AZ; null = the first GPU AZ
+
+# ----------------------------------------------------------------------------- model and workload (REQUIRED: model)
+# Written to the generated env by scripts/gen_env.py (MODEL_ID, MODEL_REVISION and RUNTIME_IMAGE, in both
+# platform.env and sample.env).
+model_id       = "Qwen/Qwen3.8-27B-FP8"
+model_revision = "017b9c7af6b5689d5dd426a76e0bc077eb5ca20a"
+
+# Object prefix of the model in the model bucket (MODEL_S3_PREFIX / MODEL_S3_URI of the generated env):
+# scripts/10-stage-model.sh stages the model there, 11-prefetch.sh reads it, and the model-stager role
+# may write only there. null = <model_id>/<model_revision>; set it to keep an existing bucket layout.
+# model_s3_prefix = "Qwen3.8-27B-FP8"
+
+# Optional Secrets Manager ARN of a Hugging Face token (gated models only); Terraform grants
+# GetSecretValue on it to the model-prefetch role and never reads the value.
+# hf_token_secret_arn = "arn:aws:secretsmanager:<region>:<account>:secret:<name>"
+
+# The runtime image of the Frontend and the workers, pinned by digest: the public NGC image of versions.env.
+# To keep the pull off the NAT gateway, create the optional sglang-runtime repository of this stack (off by
+# default), mirror the image into it (docs/DEPLOY.md, "Mirror the image to your ECR") and set the mirror
+# here, same digest:
+# create_runtime_mirror_repository = true
+# runtime_image = "<account>.dkr.ecr.<region>.amazonaws.com/<project_name>/sglang-runtime@sha256:<digest>"
+runtime_image = "nvcr.io/nvidia/ai-dynamo/sglang-runtime:1.6.0-efa@sha256:d574951b0dbd037bdcaabe121431a83cd047a5c106cb243fe6f2f97f2e456cd2"
+
+workload_rate              = 10    # RATE (req/s)
+workload_context_tokens    = 16384 # MAX_ISL of the trace
+workload_sessions_per_rate = 75    # SESSIONS_PER_RATE (sessions = rate x 75)
+
+# ----------------------------------------------------------------------------- observability
+# false = reach Grafana with kubectl port-forward; true = CloudFront + WAF edge (one apply, about 12 min
+# more, see grafana-edge.tf). The edge also needs grafana_edge_allow_plain_http_origin = true: the hop from
+# CloudFront to the internal NLB is plain HTTP on the private VPC origin path (terraform/README.md, Grafana).
+enable_grafana_edge                  = false
+grafana_edge_allow_plain_http_origin = false
+# For production use, set both: a domain you own and an issued ACM certificate in us-east-1 that covers it
+# give viewers TLSv1.2_2021 over SNI. Empty: the default *.cloudfront.net certificate, on which CloudFront
+# forces the TLSv1 security policy. Point a DNS record at the grafana_cloudfront_domain_name output.
+# grafana_edge_domain                 = "grafana.example.com"
+# grafana_edge_viewer_certificate_arn = "arn:aws:acm:us-east-1:<account-id>:certificate/<certificate-id>"
+
+# ----------------------------------------------------------------------------- add-on pins (review with kubernetes_version)
+# kubernetes_version                  = "1.35"
+# vpc_cni_addon_version               = "v1.23.2-eksbuild.3"
+# kube_proxy_addon_version            = "v1.35.3-eksbuild.49"
+# node_monitoring_agent_addon_version = "v1.7.2-eksbuild.1"

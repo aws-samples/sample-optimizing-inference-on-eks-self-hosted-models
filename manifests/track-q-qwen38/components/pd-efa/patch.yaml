@@ -1,0 +1,195 @@
+# PD plumbing (knob D) of t-dis and t-dis-hic, on the prefill (components[1]) and decode (components[2]) pods of
+# ../../dis; listed after any HiCache component. Exactly the recorded deltas of the PD topology, nothing in the engine
+# core changes (DRIVER-V2-AMENDMENT section 1, "S0 vs S7 plumbing"):
+#   * role flags: --disaggregation-mode <prefill|decode>, KV transfer over NIXL, bootstrap port 12345;
+#   * NIXL LIBFABRIC over EFA: one EFA interface per pod (one per allocated GPU, requests == limits), the FI_*
+#     env, LD_LIBRARY_PATH explicit (Kubernetes does not expand ${...}): the EFA libraries first, then the NIXL
+#     compat dirs and CUDA dirs of the derived image;
+#   * privileged (EFA), so the GPU pin wrapper pins CUDA_VISIBLE_DEVICES to the allocated GPU before the exec
+#     (a privileged container sees every host GPU); EXPECTED_GPUS is a literal (= the nvidia.com/gpu limit, 1).
+# The `test` ops fail the render if the roles or the base wrapper drift.
+# ---------------------------------------------------------------- prefill
+- op: test
+  path: /spec/components/1/name
+  value: prefill
+- op: add
+  path: /spec/components/1/podTemplate/spec/containers/0/args/-
+  value: --disaggregation-mode
+- op: add
+  path: /spec/components/1/podTemplate/spec/containers/0/args/-
+  value: prefill
+- op: add
+  path: /spec/components/1/podTemplate/spec/containers/0/args/-
+  value: --disaggregation-transfer-backend
+- op: add
+  path: /spec/components/1/podTemplate/spec/containers/0/args/-
+  value: nixl
+- op: add
+  path: /spec/components/1/podTemplate/spec/containers/0/args/-
+  value: --disaggregation-bootstrap-port
+- op: add
+  path: /spec/components/1/podTemplate/spec/containers/0/args/-
+  value: "12345"
+- op: add
+  path: /spec/components/1/podTemplate/spec/containers/0/env/-
+  value: {name: SGLANG_DISAGGREGATION_NIXL_BACKEND, value: LIBFABRIC}
+- op: add
+  path: /spec/components/1/podTemplate/spec/containers/0/env/-
+  value: {name: FI_PROVIDER, value: efa}
+- op: add
+  path: /spec/components/1/podTemplate/spec/containers/0/env/-
+  value: {name: FI_EFA_USE_DEVICE_RDMA, value: "1"}
+- op: add
+  path: /spec/components/1/podTemplate/spec/containers/0/env/-
+  value: {name: FI_EFA_ENABLE_SHM_TRANSFER, value: "0"}
+- op: add
+  path: /spec/components/1/podTemplate/spec/containers/0/env/-
+  value: {name: FI_EFA_ENABLE_SHM, value: "0"}
+- op: add
+  path: /spec/components/1/podTemplate/spec/containers/0/env/-
+  value:
+    name: LD_LIBRARY_PATH
+    value: /opt/amazon/efa/lib:/opt/dynamo/nixl-ucx-compat:/opt/dynamo/nixl-capi:/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/cuda/lib64
+- op: add
+  path: /spec/components/1/podTemplate/spec/containers/0/env/-
+  value: {name: EXPECTED_GPUS, value: "1"}
+- op: add
+  path: /spec/components/1/podTemplate/spec/containers/0/resources/requests/vpc.amazonaws.com~1efa
+  value: "1"
+- op: add
+  path: /spec/components/1/podTemplate/spec/containers/0/resources/limits/vpc.amazonaws.com~1efa
+  value: "1"
+- op: add
+  path: /spec/components/1/podTemplate/spec/containers/0/securityContext/privileged
+  value: true
+- op: test
+  path: /spec/components/1/podTemplate/spec/containers/0/args/0
+  value: |
+    set -euo pipefail
+    ulimit -l unlimited || true
+    ulimit -n 1048576 || true
+    exec python3 -m dynamo.sglang "$@"
+- op: replace
+  path: /spec/components/1/podTemplate/spec/containers/0/args/0
+  value: |
+    set -euo pipefail
+    ulimit -l unlimited || true
+    ulimit -n 1048576 || true
+    # GPU pin: privileged (EFA) sees every host GPU, so CUDA would take GPU 0 (another pod's). Pin it,
+    # by UUID in ascending NVML index order, to the GPUs the device plugin allocated
+    # (NVIDIA_VISIBLE_DEVICES: a directory of index entries, or a comma list of indices).
+    # EXPECTED_GPUS is this container's nvidia.com/gpu limit.
+    gpu_pin_fatal() { echo "FATAL: GPU pin: $*" >&2; exit 1; }
+    nvd="${NVIDIA_VISIBLE_DEVICES:-}"
+    ids=""
+    if [ -d "$nvd" ]; then
+      for entry in "$nvd"/*; do
+        if [ -e "$entry" ]; then ids="$ids ${entry##*/}"; fi
+      done
+    else
+      case "$nvd" in
+        "" | all | void | none) gpu_pin_fatal "NVIDIA_VISIBLE_DEVICES='$nvd' is not a per-container allocation" ;;
+        *[!0-9,]*) gpu_pin_fatal "NVIDIA_VISIBLE_DEVICES='$nvd' is neither a device directory nor a list of GPU indices" ;;
+      esac
+      ids="$(printf '%s' "$nvd" | tr ',' ' ')"
+    fi
+    for id in $ids; do
+      case "$id" in
+        *[!0-9]*) gpu_pin_fatal "unexpected device entry '$id' in NVIDIA_VISIBLE_DEVICES='$nvd'" ;;
+      esac
+    done
+    sorted=""
+    count=0
+    for id in $(printf '%s\n' $ids | sort -n -u); do
+      sorted="$sorted $id"
+      count=$((count + 1))
+    done
+    [ "$count" -gt 0 ] || gpu_pin_fatal "no allocated GPU in NVIDIA_VISIBLE_DEVICES='$nvd'"
+    want="${EXPECTED_GPUS:-}"
+    case "$want" in
+      "" | *[!0-9]*) gpu_pin_fatal "EXPECTED_GPUS='$want' must be the container's nvidia.com/gpu limit" ;;
+    esac
+    [ "$count" -eq "$want" ] || gpu_pin_fatal "$count GPU(s) allocated (NVIDIA_VISIBLE_DEVICES='$nvd'), limit is $want"
+    smi="$(nvidia-smi --query-gpu=index,uuid --format=csv,noheader)" || gpu_pin_fatal "nvidia-smi --query-gpu=index,uuid failed"
+    cvd=""
+    for id in $sorted; do
+      uuid=""
+      while IFS=', ' read -r smi_index smi_uuid; do
+        if [ "$smi_index" = "$id" ]; then
+          uuid="$smi_uuid"
+          break
+        fi
+      done <<<"$smi"
+      [ -n "$uuid" ] || gpu_pin_fatal "GPU index $id has no UUID in nvidia-smi output"
+      cvd="${cvd:+$cvd,}$uuid"
+    done
+    export CUDA_VISIBLE_DEVICES="$cvd"
+    echo "GPU pin: indices${sorted} -> CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES" >&2
+    exec python3 -m dynamo.sglang "$@"
+# ---------------------------------------------------------------- decode
+- op: test
+  path: /spec/components/2/name
+  value: decode
+- op: add
+  path: /spec/components/2/podTemplate/spec/containers/0/args/-
+  value: --disaggregation-mode
+- op: add
+  path: /spec/components/2/podTemplate/spec/containers/0/args/-
+  value: decode
+- op: add
+  path: /spec/components/2/podTemplate/spec/containers/0/args/-
+  value: --disaggregation-transfer-backend
+- op: add
+  path: /spec/components/2/podTemplate/spec/containers/0/args/-
+  value: nixl
+- op: add
+  path: /spec/components/2/podTemplate/spec/containers/0/args/-
+  value: --disaggregation-bootstrap-port
+- op: add
+  path: /spec/components/2/podTemplate/spec/containers/0/args/-
+  value: "12345"
+- op: add
+  path: /spec/components/2/podTemplate/spec/containers/0/env/-
+  value: {name: SGLANG_DISAGGREGATION_NIXL_BACKEND, value: LIBFABRIC}
+- op: add
+  path: /spec/components/2/podTemplate/spec/containers/0/env/-
+  value: {name: FI_PROVIDER, value: efa}
+- op: add
+  path: /spec/components/2/podTemplate/spec/containers/0/env/-
+  value: {name: FI_EFA_USE_DEVICE_RDMA, value: "1"}
+- op: add
+  path: /spec/components/2/podTemplate/spec/containers/0/env/-
+  value: {name: FI_EFA_ENABLE_SHM_TRANSFER, value: "0"}
+- op: add
+  path: /spec/components/2/podTemplate/spec/containers/0/env/-
+  value: {name: FI_EFA_ENABLE_SHM, value: "0"}
+- op: add
+  path: /spec/components/2/podTemplate/spec/containers/0/env/-
+  value:
+    name: LD_LIBRARY_PATH
+    value: /opt/amazon/efa/lib:/opt/dynamo/nixl-ucx-compat:/opt/dynamo/nixl-capi:/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/cuda/lib64
+- op: add
+  path: /spec/components/2/podTemplate/spec/containers/0/env/-
+  value: {name: EXPECTED_GPUS, value: "1"}
+- op: add
+  path: /spec/components/2/podTemplate/spec/containers/0/resources/requests/vpc.amazonaws.com~1efa
+  value: "1"
+- op: add
+  path: /spec/components/2/podTemplate/spec/containers/0/resources/limits/vpc.amazonaws.com~1efa
+  value: "1"
+- op: add
+  path: /spec/components/2/podTemplate/spec/containers/0/securityContext/privileged
+  value: true
+- op: test
+  path: /spec/components/2/podTemplate/spec/containers/0/args/0
+  value: |
+    set -euo pipefail
+    ulimit -l unlimited || true
+    ulimit -n 1048576 || true
+    exec python3 -m dynamo.sglang "$@"
+# The decode runs the prefill's wrapper, character for character.
+- op: remove
+  path: /spec/components/2/podTemplate/spec/containers/0/args/0
+- op: copy
+  from: /spec/components/1/podTemplate/spec/containers/0/args/0
+  path: /spec/components/2/podTemplate/spec/containers/0/args/0

@@ -1,0 +1,11 @@
+# PD role flags + NIXL LIBFABRIC over EFA (privileged, GPU pin) on the prefill and decode pods; used by
+# topologies/t-dis and topologies/t-dis-hic.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+patches:
+  - path: patch.yaml
+    target:
+      group: nvidia.com
+      version: v1beta1
+      kind: DynamoGraphDeployment
+      name: q38

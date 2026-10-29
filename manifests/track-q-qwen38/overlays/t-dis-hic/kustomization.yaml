@@ -1,0 +1,6 @@
+# Track Q t-dis-hic entry point (kubectl apply -k overlays/t-dis-hic): the topology with the round-robin Frontend,
+# i.e. the R-off arm; byte-identical to its rr cell (cells/). 50-toggle-router.sh switches the arm in place.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../topologies/t-dis-hic

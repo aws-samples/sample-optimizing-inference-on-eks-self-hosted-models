@@ -1,0 +1,8 @@
+# Cell S1 = t-agg + kv Frontend (agg 8x TP1, no HiCache).
+# Rendered to ../../rendered/S1.yaml by scripts/render-track-q.sh.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../overlays/t-agg
+components:
+  - ../../components/router-kv

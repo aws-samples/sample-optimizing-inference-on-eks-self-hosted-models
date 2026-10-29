@@ -1,0 +1,127 @@
+# O-11 on-stage toggle demo: CPU-only Dynamo mocker workers, labelled "simulation".
+# The mocker registers like a real worker and publishes KV events, so the rr -> kv toggle
+# (DYN_ROUTER_MODE on the Frontend only) changes real routing decisions without GPUs.
+# Tokenizer: Qwen/Qwen3-0.6B from the public Hub (anonymous), so HF_HUB_OFFLINE stays unset.
+# kv-bytes-per-token is explicit: 28 layers x 2 x 8 KV heads x 128 head_dim x 2 B = 114688;
+# --block-size 64 (the sglang engine type defaults to 1-token blocks).
+# Requests follow the FT-4 measurements (worker ~470 MiB, frontend ~270 MiB), limits >= 2x, so the
+# whole graph plus a surge frontend fits one c7i-flex.xlarge during the rr -> kv roll.
+apiVersion: nvidia.com/v1beta1
+kind: DynamoGraphDeployment
+metadata:
+  name: mocker
+  labels:
+    demo.kubecon/simulation: "true"
+  annotations:
+    demo.kubecon/simulation: "true"
+spec:
+  backendFramework: sglang
+  components:
+    - name: Frontend
+      type: frontend
+      replicas: 1
+      podTemplate:
+        metadata:
+          annotations:
+            karpenter.sh/do-not-disrupt: "true"
+        spec:
+          nodeSelector:
+            karpenter.sh/nodepool: cpu-demo
+          # The image declares USER dynamo by name (uid 1000): runAsNonRoot needs the number.
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: main
+              image: nvcr.io/nvidia/ai-dynamo/sglang-runtime:1.5.1@sha256:37badffd83eb334aee9d06fb442e36fc3c963314336c92622c78ac5c037d514d
+              imagePullPolicy: IfNotPresent
+              command:
+                - python3
+              args:
+                - -m
+                - dynamo.frontend
+              env:
+                - name: HF_HOME
+                  value: /hf-cache
+                - name: DYN_ROUTER_MODE
+                  value: round-robin
+              resources:
+                requests:
+                  cpu: 500m
+                  memory: 384Mi
+                limits:
+                  cpu: "2"
+                  memory: 1Gi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+              volumeMounts:
+                - name: hf-cache
+                  mountPath: /hf-cache
+          volumes:
+            - name: hf-cache
+              emptyDir:
+                sizeLimit: 2Gi
+    - name: mocker
+      type: worker
+      replicas: 2
+      podTemplate:
+        metadata:
+          annotations:
+            karpenter.sh/do-not-disrupt: "true"
+        spec:
+          nodeSelector:
+            karpenter.sh/nodepool: cpu-demo
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: main
+              image: nvcr.io/nvidia/ai-dynamo/sglang-runtime:1.5.1@sha256:37badffd83eb334aee9d06fb442e36fc3c963314336c92622c78ac5c037d514d
+              imagePullPolicy: IfNotPresent
+              workingDir: /workspace
+              command:
+                - python3
+                - -m
+                - dynamo.mocker
+              args:
+                - --model-path
+                - Qwen/Qwen3-0.6B
+                - --engine-type
+                - sglang
+                - --kv-bytes-per-token
+                - "114688"
+                - --num-gpu-blocks-override
+                - "4096"
+                - --block-size
+                - "64"
+                - --speedup-ratio
+                - "1.0"
+              env:
+                - name: HF_HOME
+                  value: /hf-cache
+              resources:
+                requests:
+                  cpu: 500m
+                  memory: 640Mi
+                limits:
+                  cpu: "2"
+                  memory: 1536Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+              volumeMounts:
+                - name: hf-cache
+                  mountPath: /hf-cache
+          volumes:
+            - name: hf-cache
+              emptyDir:
+                sizeLimit: 2Gi

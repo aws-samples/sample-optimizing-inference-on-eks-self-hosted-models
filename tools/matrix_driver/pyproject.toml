@@ -1,0 +1,5 @@
+# Offline suite of the Qwen3.8 matrix driver (fake cluster + fake S3): no AWS, no kubectl, no network.
+# Run from the repo root:
+# uv run --with-requirements tests/requirements-test.txt pytest tools/matrix_driver/tests -q -p no:cacheprovider
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,17 @@
+# Knob R on: the Frontend's DYN_ROUTER_MODE (env[2]) becomes kv; nothing else changes (the rr arm keeps the
+# round-robin of ../../frontend). Used by frontends/kv (50-toggle-router.sh kv) and the kv cells S1/S4/S5/S7.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+patches:
+  - target:
+      group: nvidia.com
+      version: v1beta1
+      kind: DynamoGraphDeployment
+      name: q38
+    patch: |-
+      - op: test
+        path: /spec/components/0/podTemplate/spec/containers/0/env/2/name
+        value: DYN_ROUTER_MODE
+      - op: replace
+        path: /spec/components/0/podTemplate/spec/containers/0/env/2/value
+        value: kv

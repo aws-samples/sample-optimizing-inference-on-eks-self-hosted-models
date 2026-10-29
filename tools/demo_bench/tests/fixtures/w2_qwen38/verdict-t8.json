@@ -1,0 +1,362 @@
+{
+ "targets": 8,
+ "sessions": 195,
+ "passed": true,
+ "failed": [],
+ "min_margin": 0.020313479623824446,
+ "margins": {
+  "kv_gpu_band": 0.07055969238281251,
+  "kv_l2": 0.07606811523437496,
+  "kv_minus_rr_l2": 0.558343505859375,
+  "uncacheable": 0.020313479623824446,
+  "ceiling": 0.026068115234375022,
+  "l3_window_rr": 0.078734130859375,
+  "fkv_over_ct": 0.14334470989761083,
+  "fkv_under_l2": 0.21234690829433434
+ },
+ "hits": {
+  "ceiling": 0.876068115234375,
+  "gpu_only": {
+   "rr": 0.0985260009765625,
+   "kv": 0.3705596923828125
+  },
+  "gpu_l2_inclusive": {
+   "rr": 0.167724609375,
+   "kv": 0.876068115234375
+  },
+  "gpu_l2_l3": {
+   "rr": 0.276458740234375,
+   "kv": 0.876068115234375
+  },
+  "l3_only_share": {
+   "rr": 0.108734130859375,
+   "kv": 0.0
+  },
+  "l2_only_share": {
+   "rr": 0.0691986083984375,
+   "kv": 0.5055084228515625
+  },
+  "host_plus_storage_share_of_cached_kv": 0.5770195422719198
+ },
+ "footprints_tokens_per_target": {
+  "sessions_kv": [
+   2506752,
+   2500608,
+   2531328,
+   2410496,
+   2410496,
+   2401280,
+   2410496,
+   2410496
+  ],
+  "sessions_rr": [
+   7867392,
+   8230912,
+   7525376,
+   7386112,
+   8146944,
+   8541184,
+   8003584,
+   8628224
+  ],
+  "midpoint": 2656992.0,
+  "sessions_kv_max_over_midpoint": 0.9527044116053041,
+  "sessions_kv_mean_over_midpoint": 0.9212462815093158,
+  "populated_kv": [
+   2692096,
+   2689024,
+   2701312,
+   2608128,
+   2499584,
+   2499584,
+   2502656,
+   2493440
+  ],
+  "tool_incl_cold_kv": [
+   3735552,
+   3729408,
+   3760128,
+   3639296,
+   3536896,
+   3527680,
+   3536896,
+   3536896
+  ],
+  "tool_incl_cold_rr": [
+   9403392,
+   9254912,
+   9061376,
+   9229312,
+   9478144,
+   9462784,
+   8720384,
+   9140224
+  ]
+ },
+ "live_states": {
+  "peak_gpu_kv": [
+   21,
+   21,
+   22,
+   21,
+   21,
+   21,
+   21,
+   21
+  ],
+  "peak_gpu_rr": [
+   21,
+   23,
+   21,
+   21,
+   22,
+   22,
+   23,
+   24
+  ],
+  "peak_gpu_u_l2_kv": [
+   25,
+   25,
+   25,
+   24,
+   24,
+   24,
+   24,
+   24
+  ],
+  "peak_gpu_u_l2_rr": [
+   31,
+   35,
+   32,
+   31,
+   33,
+   33,
+   34,
+   33
+  ]
+ },
+ "window": {
+  "rows": 920,
+  "counted_rows": 638,
+  "counted_continuation": 574,
+  "counted_cold": 64,
+  "entries": 195,
+  "entries_after_populate": 0,
+  "cold_rows_in_populate": 28,
+  "continuation_and_cold_per_5min_after_populate": [
+   [
+    129,
+    18
+   ],
+   [
+    165,
+    11
+   ],
+   [
+    129,
+    15
+   ],
+   [
+    151,
+    20
+   ]
+  ],
+  "max_turn": 5,
+  "max_isl": 113664,
+  "max_isl_plus_osl": 122309,
+  "rows_isl_plus_osl_ge_context": 0,
+  "mean_isl_counted": 105186.30721003134,
+  "mean_osl_counted": 2474.0062695924767,
+  "mean_session_tokens_kv": 100420.26666666666
+ },
+ "checks": [
+  {
+   "name": "ceiling_single_cache",
+   "value": 0.876068115234375,
+   "lo": 0.85,
+   "hi": null,
+   "passed": true,
+   "informational": false,
+   "source": "plan 4.4"
+  },
+  {
+   "name": "rr_gpu_only",
+   "value": 0.0985260009765625,
+   "lo": null,
+   "hi": 0.4,
+   "passed": true,
+   "informational": false,
+   "source": "plan 4.4"
+  },
+  {
+   "name": "kv_sticky_gpu_only",
+   "value": 0.3705596923828125,
+   "lo": 0.3,
+   "hi": 0.65,
+   "passed": true,
+   "informational": false,
+   "source": "plan 4.4 band"
+  },
+  {
+   "name": "kv_sticky_plus_l2_inclusive",
+   "value": 0.876068115234375,
+   "lo": 0.8,
+   "hi": null,
+   "passed": true,
+   "informational": false,
+   "source": "plan 4.4, inclusive L2"
+  },
+  {
+   "name": "kv_minus_rr_with_l2_inclusive",
+   "value": 0.708343505859375,
+   "lo": 0.15,
+   "hi": null,
+   "passed": true,
+   "informational": false,
+   "source": "plan 4.4 R x O, inclusive L2"
+  },
+  {
+   "name": "rr_revisit_same_target",
+   "value": 0.14218009478672985,
+   "lo": 0.075,
+   "hi": 0.175,
+   "passed": true,
+   "informational": false,
+   "source": "1/T +- 0.05, T=8"
+  },
+  {
+   "name": "uncacheable_prefill",
+   "value": 0.10031347962382445,
+   "lo": 0.08,
+   "hi": null,
+   "passed": true,
+   "informational": false,
+   "source": "plan 4.4"
+  },
+  {
+   "name": "overlapped_turns",
+   "value": 0.0,
+   "lo": null,
+   "hi": 0.1,
+   "passed": true,
+   "informational": false,
+   "source": "turn 30 s (I)"
+  },
+  {
+   "name": "live_states_gpu",
+   "value": 0.05486284289276808,
+   "lo": null,
+   "hi": 0.8,
+   "passed": true,
+   "informational": false,
+   "source": "peak kv sessions with a GPU block / max_mamba_cache_size 401 (M)"
+  },
+  {
+   "name": "live_states_host",
+   "value": 0.037821482602118005,
+   "lo": null,
+   "hi": 0.8,
+   "passed": true,
+   "informational": false,
+   "source": "peak kv sessions in GPU u L2 / host mamba states 661 (I)"
+  },
+  {
+   "name": "rr_footprint_over_gpu",
+   "value": 4.152120916626036,
+   "lo": 1.0,
+   "hi": null,
+   "passed": true,
+   "informational": false,
+   "source": "rr per-target footprint > C_t"
+  },
+  {
+   "name": "rr_footprint_over_l2",
+   "value": 2.7134521557303595,
+   "lo": 1.0,
+   "hi": null,
+   "passed": true,
+   "informational": false,
+   "source": "d41: F_rr above L2 per target -> R-off O cells read L3"
+  },
+  {
+   "name": "l3_window_rr",
+   "value": 0.108734130859375,
+   "lo": 0.03,
+   "hi": null,
+   "passed": true,
+   "informational": false,
+   "source": "share of counted blocks served only by L3 under rr (S2)"
+  },
+  {
+   "name": "populate_over_gpu",
+   "value": 1.1872257435397366,
+   "lo": 1.0,
+   "hi": null,
+   "passed": true,
+   "informational": false,
+   "source": "d41: populated tokens per engine > C_t"
+  },
+  {
+   "name": "sessions_floor",
+   "value": 195.0,
+   "lo": 64.0,
+   "hi": null,
+   "passed": true,
+   "informational": false,
+   "source": "d41: N_s >= 8 x engines"
+  },
+  {
+   "name": "d41_c_t_lt_fkv_sessions",
+   "value": 1.1433447098976108,
+   "lo": 1.0,
+   "hi": null,
+   "passed": true,
+   "informational": false,
+   "source": "d41: C_t < F_kv"
+  },
+  {
+   "name": "d41_fkv_sessions_le_l2",
+   "value": 0.7876530917056657,
+   "lo": null,
+   "hi": 1.0,
+   "passed": true,
+   "informational": false,
+   "source": "d41: F_kv <= L2_pod"
+  },
+  {
+   "name": "context_fit_rows",
+   "value": 0.0,
+   "lo": null,
+   "hi": 0.0,
+   "passed": true,
+   "informational": false,
+   "source": "rows with ISL + OSL >= context_len 131072 (SGLang rejects them)"
+  },
+  {
+   "name": "tool_w_over_sum_gpu_superseded",
+   "value": 1.1620550950755728,
+   "lo": 1.8,
+   "hi": 2.2,
+   "passed": false,
+   "informational": true,
+   "source": "plan node-level rule, superseded by the d41 rules"
+  }
+ ],
+ "inputs": {
+  "trace_sha256": "7b061c7b3128e4cbdffe3e9134b5001108ad6558d06e4ba63a09670f2eea9f09",
+  "sidecar_sha256": "f70c8b6248d1a44f79b7de1e37115778e31b4686307c38f50fdce294c99b5bf1",
+  "capacities_per_target": {
+   "C_t": 2100224,
+   "L2_pod": 3213760,
+   "L3_pod_I": 113000000,
+   "mamba_gpu": 401,
+   "mamba_host_I": 661,
+   "max_running": 80
+  },
+  "tool_verdicts_superseded": {
+   "gpu_only": false,
+   "inclusive_l2": false,
+   "l3_unbounded": false
+  }
+ }
+}

@@ -1,0 +1,25 @@
+# plan-e4 (E4', v2): headline S0 vs S7, n=3, counterbalanced S0,S7,S7,S0,S0,S7; the 3 S0 runs are the noise pilot.
+# Grammar (driver/matrix_driver.py parse_plan, v2): header lines run_id, hard_stop, [on_failure abort|continue], [cut_order <cells>],
+# w2, tokenizer, slo, [estimate]; steps in order: probe-cold-prefill <cell> [n=] [tokens=] | run <cell> <rep> [label=] |
+# calibrate-slo after=<cell>/rep<k> [band=lo,hi] | teardown.
+# Cells: S0 agg rr | S1 agg kv | S2 agg+HiCache 8x200 GB rr | S4 agg+HiCache kv | S3 PD rr | S5 PD kv |
+#        S6 PD+HiCache (prefill 4x400 GB, decode none) rr | S7 PD+HiCache kv.   R = round-robin vs kv in both topologies.
+# Results: s3://${RESULTS_BUCKET}/matrix/<run_id>/<cell>/rep<k>/ (append-only, run.json last);
+# the plan lock (_lock/plan-lock-<launch>.json: plan sha256, SLO, W2) is the first object of every launch.
+# Hard stop 2026-10-24T04:30:00Z for every matrix plan (Job activeDeadlineSeconds + watchdog CronJob, E7' from 05:00Z).
+# SLO of record = the e3 calibration, verified against the e3 lock (e3_plan_sha256 = sha256 of plan-e3.txt).
+# on_failure abort: a failed or invalid S0/S7 run ends the plan (no unbalanced n).
+run_id q38-e4
+hard_stop 2026-10-24T04:30:00Z
+on_failure abort
+w2 trace=s3://${RESULTS_BUCKET}/matrix/inputs/w2-qwen38-7b061c7b/w2-qwen38.jsonl trace_sha256=7b061c7b3128e4cbdffe3e9134b5001108ad6558d06e4ba63a09670f2eea9f09 sidecar=s3://${RESULTS_BUCKET}/matrix/inputs/w2-qwen38-7b061c7b/w2-qwen38.side.jsonl sidecar_sha256=f70c8b6248d1a44f79b7de1e37115778e31b4686307c38f50fdce294c99b5bf1 frozen=yes
+tokenizer prefix=s3://${RESULTS_BUCKET}/matrix/inputs/tokenizer-qwen38-27b-fp8-017b9c7a/ sums_sha256=7c8e0b6c2c49bf09b305f0a2902aa2250c11302ea1a859ea7bca3f4d9f8c79be
+slo from=s3://${RESULTS_BUCKET}/matrix/q38-e3/_slo/slo-calibration.json lock=s3://${RESULTS_BUCKET}/matrix/q38-e3/_slo/slo-lock.json e3_plan_sha256=b05914ad3f39a656e6776ab40604ebb69223be25ed2485e7dd3e281bd22068c3
+estimate boot_s=900 reset_s=240 drain_s=600 probe_s=300   # (I) guard only: E1 boot ~5.5 min + teardown + warm-up; W2 drain ~50-70 s (dmodel, I)
+run S0 1
+run S7 1
+run S7 2
+run S0 2
+run S0 3
+run S7 3
+teardown

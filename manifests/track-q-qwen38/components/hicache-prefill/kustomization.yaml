@@ -1,0 +1,10 @@
+# HiCache L2 400 GB/engine + L3 NIXL POSIX (buffered) on the PD prefill only; used by topologies/t-dis-hic only.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+patches:
+  - path: patch.yaml
+    target:
+      group: nvidia.com
+      version: v1beta1
+      kind: DynamoGraphDeployment
+      name: q38

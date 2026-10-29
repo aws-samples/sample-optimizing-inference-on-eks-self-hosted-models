@@ -1,0 +1,13 @@
+# Copy to terraform.tfvars (gitignored) and adjust. Use the same project_name / cluster_name as
+# ../cluster/terraform.tfvars: both stacks derive the bucket names the same way.
+aws_region = "us-east-2"
+
+# project_name = "dynamo-sample"
+# cluster_name = "dynamo-sample-use2" # null = <project_name>-<region code of the AZ IDs>
+
+# Explicit names override the derived <prefix>-{models,results}-<account>-<suffix>:
+# model_bucket_name   = "<name>"
+# results_bucket_name = "<name>"
+
+# Extra tags: keys and values use only letters, digits, spaces and _ . : / = + - @ (the plan refuses others).
+tags = {}

@@ -1,0 +1,53 @@
+# SGLang engine metric names (base names; _bucket/_sum/_count suffixes are implied).
+# Provenance:
+#   [spec] the metrics of the planned recorded panels and of HiCache (SGLang 0.5.18).
+#   [dyn]  names exported by the Dynamo dev sglang.json dashboard, authored against the SGLang engine
+#          (dynamo/dev/observability/grafana_dashboards/sglang.json); confirmed on B200 (T-OBS-1).
+#   [src]  declared in sgl-project/sglang v0.5.18 python/sglang/srt/observability/metrics_collector.py (hicache_backup_bytes_total :2094, hicache_backup_tokens_total :2114, load_back_bytes_total :2104 in the sglang-runtime 1.5.1 image).
+# sglang:prefetch_bandwidth stays known (spec 11; declared at :1907) but dashboards must NOT use it: it is only observed by storage
+# backends that report StorageMetrics and had no series on the nixl backend in the real-GPU Track C run (test_trackc_fixes.py).
+# Deliberately ABSENT: sglang:cache_hit_rate (decision: never use; derive from cached_tokens_total/prompt_tokens_total).
+sglang:cached_tokens_total
+sglang:prompt_tokens_total
+sglang:num_running_reqs
+sglang:num_queue_reqs
+sglang:inter_token_latency_seconds
+sglang:hicache_host_used_tokens
+sglang:hicache_host_total_tokens
+sglang:load_back_tokens_total
+sglang:prefetched_tokens_total
+sglang:prefetch_bandwidth
+sglang:hicache_backup_bytes_total
+sglang:hicache_backup_tokens_total
+sglang:load_back_bytes_total
+sglang:backuped_tokens_total
+sglang:e2e_request_latency_seconds
+sglang:evicted_tokens_total
+sglang:eviction_duration_seconds
+sglang:full_token_usage
+sglang:swa_token_usage
+sglang:mamba_usage
+sglang:token_usage
+sglang:gen_throughput
+sglang:kv_available_tokens
+sglang:kv_evictable_tokens
+sglang:kv_used_tokens
+sglang:load_back_duration_seconds
+sglang:lora_pool_slots_total
+sglang:lora_pool_slots_used
+sglang:lora_pool_utilization
+sglang:max_total_num_tokens
+sglang:new_token_ratio
+sglang:num_decode_prealloc_queue_reqs
+sglang:num_decode_transfer_queue_reqs
+sglang:num_pages
+sglang:num_paused_reqs
+sglang:num_prefill_inflight_queue_reqs
+sglang:num_prefill_prealloc_queue_reqs
+sglang:num_retracted_reqs
+sglang:page_size
+sglang:pending_prealloc_token_usage
+sglang:spec_accept_length
+sglang:spec_accept_rate
+sglang:streaming_session_held_tokens
+sglang:time_to_first_token_seconds

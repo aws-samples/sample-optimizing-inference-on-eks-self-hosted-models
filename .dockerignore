@@ -1,0 +1,13 @@
+# Build context allowlist for tools/bench-image/Dockerfile (context = repository root).
+# Everything is excluded except the trees the image copies; caches, venvs and local tool state
+# never enter the context.
+*
+!tools/bench-image
+!tools/demo_bench/pyproject.toml
+!tools/demo_bench/src
+**/.omc
+**/.claude
+**/__pycache__
+**/*.pyc
+**/.DS_Store
+**/.venv

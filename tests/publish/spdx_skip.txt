@@ -1,0 +1,6 @@
+# Tracked .py/.sh/.tf files without the MIT-0 SPDX header: <path><TAB><reason> (vendored or generated only).
+# Each one below is a vendored copy whose sha256 is pinned in
+# tools/matrix_driver/tests/fixtures/golden_plans_and_verbatim.json (verbatim_file_sha256); a header would change it.
+tools/matrix_driver/watchdog.py	vendored (copy of the watchdog that ran plus the audit comments on its one process call; sha256 pinned in golden_plans_and_verbatim.json)
+tools/matrix_driver/takes/capture.py	vendored (copy of the take capture script plus its URL and aws argv input checks; sha256 pinned in golden_plans_and_verbatim.json)
+tools/matrix_driver/takes/compose.sh	vendored verbatim (byte-identical copy of the take compose script; sha256 pinned in golden_plans_and_verbatim.json)

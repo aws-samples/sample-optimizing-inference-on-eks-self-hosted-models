@@ -1,0 +1,6 @@
+# examples/07-pd-hicache = Track Q cell S6 (prefill/decode + HiCache on prefill, round-robin).
+# Read-only view: manifests/track-q-qwen38/cells/S6 is the source of truth. Render with scripts/render-examples.sh.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../manifests/track-q-qwen38/cells/S6

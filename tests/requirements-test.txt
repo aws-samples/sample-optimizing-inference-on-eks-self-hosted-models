@@ -1,0 +1,23 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+# Python environment of the offline test suites: pytest, PyYAML, jsonschema and defusedxml (the XML parser of
+# tests/publish/lib_xml.py) and every package they pull in, each pinned to the exact version the suites are tested
+# with (the markers are those of uv's universal resolution).
+# From the repository root: uv run --with-requirements tests/requirements-test.txt pytest tests/<suite> -q
+# To update: change the four direct pins, then resolve the whole set again and replace the lines below with
+#   printf 'pytest==<v>\npyyaml==<v>\njsonschema==<v>\ndefusedxml==<v>\n' | uv pip compile - --universal --no-header --no-annotate
+# defusedxml is also pinned in the dev group of tools/demo_bench/pyproject.toml: keep both at the same version.
+attrs==26.1.0
+colorama==0.4.6 ; sys_platform == 'win32'
+defusedxml==0.7.1
+iniconfig==2.3.1
+jsonschema==4.26.0
+jsonschema-specifications==2025.9.1
+packaging==26.3
+pluggy==1.7.0
+pygments==2.21.0
+pytest==9.1.1
+pyyaml==6.0.3
+referencing==0.37.0
+rpds-py==2026.9.1
+typing-extensions==4.16.0 ; python_full_version < '3.13'

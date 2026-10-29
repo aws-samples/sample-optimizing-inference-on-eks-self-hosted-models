@@ -1,0 +1,20 @@
+{
+ "expanded_plan_sha256": {
+  "plan-e3.txt": "b05914ad3f39a656e6776ab40604ebb69223be25ed2485e7dd3e281bd22068c3",
+  "plan-e4.txt": "6e747a67d951ca65b8a21971b7ef363f00f72897e02af42b71dda5810f78df50",
+  "plan-e5.txt": "e5ab7ff778d1ca1b429589a7164c26d129cc2092cdebcb404330e40177966d1b",
+  "plan-e6.txt": "fb9d7f3e82d793226dbb315ebdc53e1fc6fae9e00ae2b8f1d174bb35b152dd2c",
+  "plan-e7.txt": "825a9fbbd692a09d9e586bd05bcb1bde463f9cf916c5247d01823e26f399a45e",
+  "plan-w3-r10-cells.txt": "ae8aff3747db0fbe314ec829fc8763870853ba6db51f404a46376f7b85131cb7",
+  "plan-w3-r10.txt": "251f247f8d83ba8a24f679c9182ee355ad4c4ef26f887cdd8789da36ba18b935",
+  "plan-w3-r25-cells.txt": "4892304e8a700bc255f5afd6ccf33988dd8d6dc7dd703be56741f1a9ac4f11d0",
+  "plan-w3-r25.txt": "e3247db8a6b6a9840df8ef9f83a937423d4f9c36ec74c896366018f2e9abdc8f",
+  "plan-w3-r32-cells.txt": "15115aefed0a01b78a10b92634245dd1a69adca8c72ea648bdebeb5a672b69e3",
+  "plan-w3-r32.txt": "22fe37407663b91fe3e48ae8f91a10c95d105f97eed61a600ae7a43b83778b9a"
+ },
+ "verbatim_file_sha256": {
+  "driver/watchdog.py": "f3efdee58278ea9a4b97b770aa0d8d1e0d10065e1cda153794c1da3fb9fec637",
+  "takes/capture.py": "be5dc6a413af620129fc5ce8fef4f6d211526a4fab3c7f9e23233737426a9c94",
+  "takes/compose.sh": "74a12b2c5c44e3a5250f465b98cb32d5b4b2fb389d5c99a1e0c53983e6e16690"
+ }
+}

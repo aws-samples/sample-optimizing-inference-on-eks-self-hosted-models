@@ -1,0 +1,11 @@
+--- a/00-baseline/rendered.yaml#Frontend
++++ b/01-kv-router/rendered.yaml#Frontend
+@@ -22,7 +22,7 @@
+           - name: TRANSFORMERS_OFFLINE
+             value: "1"
+           - name: DYN_ROUTER_MODE
+-            value: round-robin
++            value: kv
+           image: nvcr.io/nvidia/ai-dynamo/sglang-runtime:1.6.0-efa@sha256:d574951b0dbd037bdcaabe121431a83cd047a5c106cb243fe6f2f97f2e456cd2
+           imagePullPolicy: IfNotPresent
+           name: main

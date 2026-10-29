@@ -1,0 +1,7 @@
+# R on: identical to frontends/rr except DYN_ROUTER_MODE=kv (50-toggle-router.sh kv <namespace>).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../frontend
+components:
+  - ../../components/router-kv

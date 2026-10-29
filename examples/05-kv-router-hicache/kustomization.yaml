@@ -1,0 +1,6 @@
+# examples/05-kv-router-hicache = Track Q cell S4 (aggregated, KV router, HiCache L2 host RAM + L3 local storage via NIXL).
+# Read-only view: manifests/track-q-qwen38/cells/S4 is the source of truth. Render with scripts/render-examples.sh.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../manifests/track-q-qwen38/cells/S4

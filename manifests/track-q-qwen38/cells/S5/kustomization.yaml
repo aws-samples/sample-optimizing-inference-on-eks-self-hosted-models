@@ -1,0 +1,8 @@
+# Cell S5 = t-dis + kv Frontend (PD 4P4D TP1 over NIXL LIBFABRIC/EFA, no HiCache).
+# Rendered to ../../rendered/S5.yaml by scripts/render-track-q.sh.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../overlays/t-dis
+components:
+  - ../../components/router-kv

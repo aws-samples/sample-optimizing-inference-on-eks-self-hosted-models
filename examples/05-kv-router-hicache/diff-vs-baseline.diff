@@ -1,0 +1,93 @@
+--- a/00-baseline/rendered.yaml#metadata
++++ b/05-kv-router-hicache/rendered.yaml#metadata
+@@ -5,6 +5,6 @@
+     app.kubernetes.io/name: q38
+     app.kubernetes.io/part-of: qwen38-matrix
+   name: q38
+-  namespace: s-agg
++  namespace: s-agg-hic
+ spec:
+   backendFramework: sglang
+--- a/00-baseline/rendered.yaml#Frontend
++++ b/05-kv-router-hicache/rendered.yaml#Frontend
+@@ -22,7 +22,7 @@
+           - name: TRANSFORMERS_OFFLINE
+             value: "1"
+           - name: DYN_ROUTER_MODE
+-            value: round-robin
++            value: kv
+           image: nvcr.io/nvidia/ai-dynamo/sglang-runtime:1.6.0-efa@sha256:d574951b0dbd037bdcaabe121431a83cd047a5c106cb243fe6f2f97f2e456cd2
+           imagePullPolicy: IfNotPresent
+           name: main
+--- a/00-baseline/rendered.yaml#Worker
++++ b/05-kv-router-hicache/rendered.yaml#Worker
+@@ -41,6 +41,21 @@
+           - 0.0.0.0
+           - --engine-route
+           - flush_cache:tm
++          - --enable-hierarchical-cache
++          - --hicache-size
++          - "200"
++          - --hicache-mem-layout
++          - page_first
++          - --hicache-io-backend
++          - kernel
++          - --hicache-write-policy
++          - write_through
++          - --hicache-storage-backend
++          - nixl
++          - --hicache-storage-prefetch-policy
++          - timeout
++          - --engine-route
++          - clear_hicache_storage:tm
+           command:
+           - /bin/bash
+           - -c
+@@ -71,6 +86,12 @@
+             value: /compile-cache/flashinfer
+           - name: SGLANG_CACHE_DIR
+             value: /compile-cache/sglang
++          - name: SGLANG_HICACHE_NIXL_BACKEND_PLUGIN
++            value: POSIX
++          - name: SGLANG_HICACHE_NIXL_USE_DIRECT_IO
++            value: "0"
++          - name: SGLANG_HICACHE_NIXL_BACKEND_STORAGE_DIR
++            value: /kvcache/l3
+           image: nvcr.io/nvidia/ai-dynamo/sglang-runtime:1.6.0-efa@sha256:d574951b0dbd037bdcaabe121431a83cd047a5c106cb243fe6f2f97f2e456cd2
+           imagePullPolicy: IfNotPresent
+           livenessProbe:
+@@ -86,11 +107,11 @@
+             name: system
+           resources:
+             limits:
+-              memory: 128Gi
++              memory: 224Gi
+               nvidia.com/gpu: "1"
+             requests:
+               cpu: "16"
+-              memory: 64Gi
++              memory: 200Gi
+               nvidia.com/gpu: "1"
+           securityContext:
+             capabilities:
+@@ -112,6 +133,9 @@
+             readOnly: true
+           - mountPath: /compile-cache
+             name: compile-cache
++          - mountPath: /kvcache/l3
++            name: hicache-l3
++            subPathExpr: $(POD_NAME)
+           workingDir: /workspace
+         initContainers:
+         - args:
+@@ -177,6 +201,10 @@
+           name: ephemeral
+         - emptyDir: {}
+           name: compile-cache
++        - hostPath:
++            path: /mnt/.ephemeral/hicache-l3/qwen38-matrix/s-agg-hic
++            type: DirectoryOrCreate
++          name: hicache-l3
+     replicas: 8
+     runtimeVersionOverride: 1.6.0
+     sharedMemorySize: 16Gi

@@ -1,0 +1,7 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+# Runtime of tools/stage_model/stage_model.py (installed by the model-stage Job from the ConfigMap
+# model-stage-code). Validated with these exact versions; hf_xet (the fast download path) comes with
+# huggingface_hub.
+huggingface_hub==2.3.0
+boto3==1.43.118

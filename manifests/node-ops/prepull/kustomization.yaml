@@ -1,0 +1,22 @@
+# Standalone on purpose: not listed in ../kustomization.yaml, so `kubectl apply -k
+# manifests/node-ops` keeps its behaviour. Applied by scripts/13-prepull.sh. The image is
+# RUNTIME_IMAGE of the platform config (../../config), the image every Track Q container runs.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: node-ops
+resources:
+  - daemonset.yaml
+components:
+  - ../../config
+replacements:
+  - source:
+      kind: ConfigMap
+      name: platform-config
+      fieldPath: data.RUNTIME_IMAGE
+    targets:
+      - select:
+          kind: DaemonSet
+          name: prepull-sglang-runtime
+        fieldPaths:
+          - spec.template.spec.initContainers.[name=pull].image
+          - spec.template.spec.containers.[name=hold].image

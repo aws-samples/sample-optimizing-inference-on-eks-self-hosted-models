@@ -1,0 +1,6 @@
+# T-agg (S0/S1): 8 Worker pods x 1 engine TP1 (8 router targets), HiCache off.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: s-agg
+resources:
+  - ../../base

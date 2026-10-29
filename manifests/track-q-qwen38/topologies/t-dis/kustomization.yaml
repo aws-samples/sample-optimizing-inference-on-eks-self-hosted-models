@@ -1,0 +1,8 @@
+# T-dis (S3/S5): 4 prefill + 4 decode pods x 1 engine TP1, KV over NIXL LIBFABRIC/EFA, HiCache off.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: s-dis
+resources:
+  - ../../dis
+components:
+  - ../../components/pd-efa

@@ -1,0 +1,27 @@
+# plan-e7 (E7', driver v4): the two recorded takes of the demo (spec section 6 E7'/E8', section 8).
+# Grammar additions over v3 (driver/matrix_driver.py parse_plan, v4):
+#   take <S0|S7> <rep> [label=] [retake_of=<cell>/rep<k>] [min_left_s=<n>]
+#       = one normal `run` (same validity, SLO lock, reset-and-verify, teardown-after-invalid) while an in-cluster capture Job
+#         records the Grafana take view (uid demo-take, var-namespace = the cell namespace) from the replay start to the end of
+#         the trace span + drain. A capture failure never invalidates the run (run.json take.capture.status=failed).
+#         retake_of: executes only if the named earlier take has capture failed or the run invalid; min_left_s: ...and only if at
+#         least that many seconds remain before hard_stop (else skipped-no-time). Both are required together.
+#   compose [target_s=170]
+#       = in-cluster ffmpeg Job: full side-by-side mp4 synced on replay start, a ~target_s sped-up mp4 for the deck and a
+#         3-panel still, from the latest valid take with a good capture of S0 and of S7. Outputs append-only under takes/<run_id>/.
+# Takes are NOT results of record (spec section 8): numbers on slides come from the matrix (plan-e4..e6).
+# Order: all takes of one cell back to back (fewer topology changes), retakes right after their take.
+# Hard stop 2026-10-24T09:00:00Z (Job activeDeadlineSeconds + watchdog window 09:00-10:00Z); E8' teardown follows.
+run_id q38-e7
+hard_stop 2026-10-24T09:00:00Z
+on_failure continue
+w2 trace=s3://${RESULTS_BUCKET}/matrix/inputs/w2-qwen38-7b061c7b/w2-qwen38.jsonl trace_sha256=7b061c7b3128e4cbdffe3e9134b5001108ad6558d06e4ba63a09670f2eea9f09 sidecar=s3://${RESULTS_BUCKET}/matrix/inputs/w2-qwen38-7b061c7b/w2-qwen38.side.jsonl sidecar_sha256=f70c8b6248d1a44f79b7de1e37115778e31b4686307c38f50fdce294c99b5bf1 frozen=yes
+tokenizer prefix=s3://${RESULTS_BUCKET}/matrix/inputs/tokenizer-qwen38-27b-fp8-017b9c7a/ sums_sha256=7c8e0b6c2c49bf09b305f0a2902aa2250c11302ea1a859ea7bca3f4d9f8c79be
+slo from=s3://${RESULTS_BUCKET}/matrix/q38-e3/_slo/slo-calibration.json lock=s3://${RESULTS_BUCKET}/matrix/q38-e3/_slo/slo-lock.json e3_plan_sha256=b05914ad3f39a656e6776ab40604ebb69223be25ed2485e7dd3e281bd22068c3
+estimate boot_s=900 reset_s=240 drain_s=600 probe_s=300   # (I) guard only: E1 boot ~5.5 min + teardown + warm-up; W2 drain ~50-70 s (dmodel, I)
+take S0 1
+take S0 2 retake_of=S0/rep1 min_left_s=5400
+take S7 1
+take S7 2 retake_of=S7/rep1 min_left_s=5400
+compose target_s=170
+teardown

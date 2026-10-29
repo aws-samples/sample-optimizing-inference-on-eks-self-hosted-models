@@ -1,0 +1,35 @@
+# GPU-node chores in the PSA-privileged node-ops namespace (namespace and the model-prefetch
+# ServiceAccount are created by the cluster Terraform). The model bucket and region come from
+# the single config source (manifests/config/platform.env) through replacements.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: node-ops
+resources:
+  - job-model-prefetch.yaml
+  - pod-ephemeral-shell.yaml
+components:
+  - ../config
+replacements:
+  - source:
+      kind: ConfigMap
+      name: platform-config
+      fieldPath: data.MODEL_BUCKET
+    targets:
+      - select:
+          kind: Job
+          name: model-prefetch
+        fieldPaths:
+          - spec.template.spec.containers.[name=prefetch].env.[name=MODEL_S3_URI].value
+        options:
+          delimiter: /
+          index: 2
+  - source:
+      kind: ConfigMap
+      name: platform-config
+      fieldPath: data.AWS_REGION
+    targets:
+      - select:
+          kind: Job
+          name: model-prefetch
+        fieldPaths:
+          - spec.template.spec.containers.[name=prefetch].env.[name=AWS_REGION].value

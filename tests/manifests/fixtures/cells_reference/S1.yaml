@@ -1,0 +1,247 @@
+# Cell S1: topology t-agg (agg 8x TP1, no HiCache), Frontend DYN_ROUTER_MODE=kv.
+# S1 and S0 are the SAME DGD (q38/s-agg); applying one over the other rolls only the
+# Frontend (R toggle, no worker redeploy). Rendered by render_cells.py; never hand-edit.
+# Delete only by name q38 + label app.kubernetes.io/part-of=qwen38-matrix. One topology at a time (8 GPUs).
+apiVersion: nvidia.com/v1beta1
+kind: DynamoGraphDeployment
+metadata:
+  name: q38
+  namespace: s-agg
+  labels:
+    app.kubernetes.io/name: q38
+    app.kubernetes.io/part-of: qwen38-matrix
+    app.kubernetes.io/component: t-agg
+  annotations:
+    q38-matrix/workers-sha256: "8f30f4ca11a3341350cfa336cfcada934569047a4252e4e923715d7e78e06a77"
+spec:
+  backendFramework: sglang
+  components:
+    - name: Frontend
+      type: frontend
+      replicas: 1
+      runtimeVersionOverride: "1.6.0"
+      podTemplate:
+        metadata:
+          labels:
+            app.kubernetes.io/part-of: qwen38-matrix
+          annotations:
+            karpenter.sh/do-not-disrupt: "true"
+        spec:
+          nodeSelector:
+            karpenter.sh/nodepool: gpu-b200-cb
+          tolerations:
+            - key: nvidia.com/gpu
+              operator: Exists
+              effect: NoSchedule
+          containers:
+            - name: main
+              image: "123456789012.dkr.ecr.us-east-2.amazonaws.com/dynamo-sample/sglang-runtime@sha256:614f0b96dacab741adf42a8db98eaf59d844327b96ffc4fe5083a57d21e11a4b"
+              imagePullPolicy: IfNotPresent
+              command:
+                - python3
+              args:
+                - "-m"
+                - dynamo.frontend
+                - "--http-host"
+                - "0.0.0.0"
+                - "--http-port"
+                - "8000"
+              env:
+                - name: HF_HUB_OFFLINE
+                  value: "1"
+                - name: TRANSFORMERS_OFFLINE
+                  value: "1"
+                - name: DYN_ROUTER_MODE
+                  value: kv
+              ports:
+                - name: http
+                  containerPort: 8000
+              resources:
+                requests:
+                  cpu: "8"
+                  memory: "16Gi"
+                limits:
+                  memory: "16Gi"
+    - name: Worker
+      type: worker
+      replicas: 8
+      runtimeVersionOverride: "1.6.0"
+      sharedMemorySize: "16Gi"
+      podTemplate:
+        metadata:
+          labels:
+            app.kubernetes.io/part-of: qwen38-matrix
+          annotations:
+            karpenter.sh/do-not-disrupt: "true"
+        spec:
+          nodeSelector:
+            karpenter.sh/nodepool: gpu-b200-cb
+          tolerations:
+            - key: nvidia.com/gpu
+              operator: Exists
+              effect: NoSchedule
+          volumes:
+            - name: models
+              hostPath:
+                path: /mnt/.ephemeral/models
+                type: Directory
+            - name: ephemeral
+              hostPath:
+                path: /mnt/.ephemeral
+                type: Directory
+            - name: compile-cache
+              emptyDir: {}
+          initContainers:
+            - name: weights-gate
+              image: "123456789012.dkr.ecr.us-east-2.amazonaws.com/dynamo-sample/sglang-runtime@sha256:614f0b96dacab741adf42a8db98eaf59d844327b96ffc4fe5083a57d21e11a4b"
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/bash
+                - "-c"
+              args:
+                - |
+                  set -euo pipefail
+                  root=/mnt/.ephemeral
+                  marker="$root/models/hub/models--Qwen--Qwen3.8-27B-FP8/.done"
+                  dev=$(df -P "$root" | awk 'NR==2 {print $1}')
+                  size_gib=$(( $(df -Pk "$root" | awk 'NR==2 {print $2}') / 1048576 ))
+                  echo "ephemeral device=$dev size=${size_gib}GiB"
+                  if [ "$size_gib" -lt "$EPHEMERAL_MIN_GIB" ]; then
+                    echo "FATAL: $root (${size_gib}GiB) is not the instance store" >&2
+                    exit 1
+                  fi
+                  deadline=$(( $(date +%s) + WEIGHTS_WAIT_TIMEOUT_S ))
+                  until grep -qx "revision=$MODEL_REVISION" "$marker" 2>/dev/null; do
+                    if [ "$(date +%s)" -ge "$deadline" ]; then
+                      echo "FATAL: no marker $marker for revision $MODEL_REVISION after ${WEIGHTS_WAIT_TIMEOUT_S}s" >&2
+                      exit 1
+                    fi
+                    echo "waiting for $marker"
+                    sleep 15
+                  done
+                  echo "weights ready: $(tr '\n' ' ' < "$marker")"
+              env:
+                - name: MODEL_REVISION
+                  value: "017b9c7af6b5689d5dd426a76e0bc077eb5ca20a"
+                - name: EPHEMERAL_MIN_GIB
+                  value: "10000"
+                - name: WEIGHTS_WAIT_TIMEOUT_S
+                  value: "1800"
+              resources:
+                requests:
+                  cpu: "100m"
+                  memory: "64Mi"
+              securityContext:
+                runAsUser: 0
+                runAsGroup: 0
+              volumeMounts:
+                - name: ephemeral
+                  mountPath: /mnt/.ephemeral
+                  readOnly: true
+          containers:
+            - name: main
+              image: "123456789012.dkr.ecr.us-east-2.amazonaws.com/dynamo-sample/sglang-runtime@sha256:614f0b96dacab741adf42a8db98eaf59d844327b96ffc4fe5083a57d21e11a4b"
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/bash
+                - "-c"
+              args:
+                - |
+                  set -euo pipefail
+                  ulimit -l unlimited || true
+                  ulimit -n 1048576 || true
+                  exec python3 -m dynamo.sglang "$@"
+                - dynamo.sglang
+                - "--model-path"
+                - Qwen/Qwen3.8-27B-FP8
+                - "--revision"
+                - "017b9c7af6b5689d5dd426a76e0bc077eb5ca20a"
+                - "--served-model-name"
+                - Qwen/Qwen3.8-27B-FP8
+                - "--tp-size"
+                - "1"
+                - "--page-size"
+                - "64"
+                - "--kv-cache-dtype"
+                - fp8_e4m3
+                - "--mem-fraction-static"
+                - "0.85"
+                - "--context-length"
+                - "131072"
+                - "--attention-backend"
+                - trtllm_mha
+                - "--mamba-radix-cache-strategy"
+                - extra_buffer
+                - "--enable-metrics"
+                - "--kv-events-config"
+                - "{\"publisher\":\"zmq\",\"topic\":\"kv-events\",\"endpoint\":\"tcp://*:5557\"}"
+                - "--host"
+                - "0.0.0.0"
+                - "--engine-route"
+                - "flush_cache:tm"
+              env:
+                - name: POD_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.name
+                - name: HF_HUB_CACHE
+                  value: /models/hub
+                - name: HF_HOME
+                  value: /compile-cache/hf-home
+                - name: HF_HUB_OFFLINE
+                  value: "1"
+                - name: TRANSFORMERS_OFFLINE
+                  value: "1"
+                - name: DYN_FORWARDPASS_METRIC_PORT
+                  value: ""
+                - name: DYN_SGL_ALLOW_TOP_LOGPROBS
+                  value: "1"
+                - name: XDG_CACHE_HOME
+                  value: /compile-cache/xdg
+                - name: TRITON_CACHE_DIR
+                  value: /compile-cache/triton
+                - name: TORCHINDUCTOR_CACHE_DIR
+                  value: /compile-cache/inductor
+                - name: FLASHINFER_WORKSPACE_BASE
+                  value: /compile-cache/flashinfer
+                - name: SGLANG_CACHE_DIR
+                  value: /compile-cache/sglang
+              ports:
+                - name: system
+                  containerPort: 9090
+              startupProbe:
+                httpGet:
+                  path: /live
+                  port: system
+                periodSeconds: 10
+                timeoutSeconds: 5
+                failureThreshold: 240
+              livenessProbe:
+                httpGet:
+                  path: /live
+                  port: system
+                periodSeconds: 5
+                timeoutSeconds: 4
+                failureThreshold: 60
+              resources:
+                requests:
+                  cpu: "16"
+                  memory: "64Gi"
+                  nvidia.com/gpu: "1"
+                limits:
+                  memory: "128Gi"
+                  nvidia.com/gpu: "1"
+              securityContext:
+                runAsUser: 0
+                runAsGroup: 0
+                capabilities:
+                  add:
+                    - IPC_LOCK
+                    - SYS_RESOURCE
+              volumeMounts:
+                - name: models
+                  mountPath: /models
+                  readOnly: true
+                - name: compile-cache
+                  mountPath: /compile-cache
+              workingDir: /workspace

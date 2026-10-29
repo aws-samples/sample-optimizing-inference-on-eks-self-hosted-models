@@ -1,0 +1,88 @@
+# HiCache (knob O) on the PD prefill (components[1]) of t-dis-hic: exactly the recorded hicache_args("400") appended
+# after the engine core, the 3 L3 env, the L3 volume/mount and the HiCache memory; the decode never runs HiCache.
+# Listed BEFORE components/pd-efa, so the order stays the recorded one (core flags, HiCache flags, PD flags; core env,
+# HiCache env, EFA env).
+#   * L2: --hicache-size 400 GB of pinned host memory per prefill engine; 4 prefill x 400 GB = 1.6 TB, the same
+#     host L2 budget as the agg cells (8 x 200 GB, components/hicache-agg; W2-QWEN38-AND-PD-L2-RECORD item 2);
+#   * L3: NIXL POSIX on the node NVMe with buffered I/O (O_DIRECT off: SGLANG_HICACHE_NIXL_USE_DIRECT_IO=0, env only);
+#     volumes[3] is the hostPath, topologies/t-dis-hic sets it per namespace, and subPathExpr $(POD_NAME) gives
+#     every pod its own directory (POD_NAME is in the base env); no NIXL telemetry on this role;
+#   * --engine-route clear_hicache_storage:tm so the matrix driver can empty L3 before every run;
+#   * memory 386Gi/410Gi (memory class "hicache-pd" of the recorded runs: the 372.5 GiB pool + the agg worker's headroom; node fit of
+#     S6/S7 in DRIVER-V2-AMENDMENT section 1).
+- op: test
+  path: /spec/components/1/name
+  value: prefill
+- op: add
+  path: /spec/components/1/podTemplate/spec/containers/0/args/-
+  value: --enable-hierarchical-cache
+- op: add
+  path: /spec/components/1/podTemplate/spec/containers/0/args/-
+  value: --hicache-size
+- op: add
+  path: /spec/components/1/podTemplate/spec/containers/0/args/-
+  value: "400"
+- op: add
+  path: /spec/components/1/podTemplate/spec/containers/0/args/-
+  value: --hicache-mem-layout
+- op: add
+  path: /spec/components/1/podTemplate/spec/containers/0/args/-
+  value: page_first
+- op: add
+  path: /spec/components/1/podTemplate/spec/containers/0/args/-
+  value: --hicache-io-backend
+- op: add
+  path: /spec/components/1/podTemplate/spec/containers/0/args/-
+  value: kernel
+- op: add
+  path: /spec/components/1/podTemplate/spec/containers/0/args/-
+  value: --hicache-write-policy
+- op: add
+  path: /spec/components/1/podTemplate/spec/containers/0/args/-
+  value: write_through
+- op: add
+  path: /spec/components/1/podTemplate/spec/containers/0/args/-
+  value: --hicache-storage-backend
+- op: add
+  path: /spec/components/1/podTemplate/spec/containers/0/args/-
+  value: nixl
+- op: add
+  path: /spec/components/1/podTemplate/spec/containers/0/args/-
+  value: --hicache-storage-prefetch-policy
+- op: add
+  path: /spec/components/1/podTemplate/spec/containers/0/args/-
+  value: timeout
+- op: add
+  path: /spec/components/1/podTemplate/spec/containers/0/args/-
+  value: --engine-route
+- op: add
+  path: /spec/components/1/podTemplate/spec/containers/0/args/-
+  value: clear_hicache_storage:tm
+- op: add
+  path: /spec/components/1/podTemplate/spec/containers/0/env/-
+  value: {name: SGLANG_HICACHE_NIXL_BACKEND_PLUGIN, value: POSIX}
+- op: add
+  path: /spec/components/1/podTemplate/spec/containers/0/env/-
+  value: {name: SGLANG_HICACHE_NIXL_USE_DIRECT_IO, value: "0"}
+- op: add
+  path: /spec/components/1/podTemplate/spec/containers/0/env/-
+  value: {name: SGLANG_HICACHE_NIXL_BACKEND_STORAGE_DIR, value: /kvcache/l3}
+- op: add
+  path: /spec/components/1/podTemplate/spec/containers/0/volumeMounts/-
+  value:
+    name: hicache-l3
+    mountPath: /kvcache/l3
+    subPathExpr: $(POD_NAME)
+- op: add
+  path: /spec/components/1/podTemplate/spec/volumes/-
+  value:
+    name: hicache-l3
+    hostPath:
+      path: /mnt/.ephemeral/hicache-l3/unset
+      type: DirectoryOrCreate
+- op: replace
+  path: /spec/components/1/podTemplate/spec/containers/0/resources/requests/memory
+  value: 386Gi
+- op: replace
+  path: /spec/components/1/podTemplate/spec/containers/0/resources/limits/memory
+  value: 410Gi

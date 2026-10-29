@@ -1,0 +1,49 @@
+{
+ "status": "ok",
+ "run_id": "q38-w3-r32",
+ "inputs": [
+  {
+   "cell": "S0",
+   "take_id": "q38-w3-r32-s0-rep1",
+   "label": "Baseline: aggregated + round-robin",
+   "namespace": "s-agg",
+   "webm_uri": "none (no live take; run record s3://example-results-bucket/matrix/q38-w3-r32/S0/rep1/run.json)",
+   "replay_start_ms": 1792793248000,
+   "replay_end_ms": 1792794172000,
+   "sync_ms": 1792793267718,
+   "sync_source": "first profiling request (run.json prometheus.window.start_s)",
+   "aiperf_started_at": "2026-10-23T22:07:28Z",
+   "aiperf_ended_at": "2026-10-23T22:22:52Z",
+   "aiperf_wall_s": 924.1,
+   "timeline_first_at_ms": 1792793278713,
+   "timeline_last_at_ms": 1792794157984,
+   "timeline_samples": 30,
+   "source_run_json": "s3://example-results-bucket/matrix/q38-w3-r32/S0/rep1/run.json",
+   "topology": "t-agg",
+   "router_mode": "round-robin"
+  },
+  {
+   "cell": "S7",
+   "take_id": "q38-w3-r32-s7-rep1",
+   "label": "Router + HiCache + PD disaggregation",
+   "namespace": "s-dis-hic",
+   "webm_uri": "none (no live take; run record s3://example-results-bucket/matrix/q38-w3-r32/S7/rep1/run.json)",
+   "replay_start_ms": 1792794755000,
+   "replay_end_ms": 1792795460000,
+   "sync_ms": 1792794758823,
+   "sync_source": "first profiling request (run.json prometheus.window.start_s)",
+   "aiperf_started_at": "2026-10-23T22:32:35Z",
+   "aiperf_ended_at": "2026-10-23T22:44:20Z",
+   "aiperf_wall_s": 705.3,
+   "timeline_first_at_ms": 1792794785153,
+   "timeline_last_at_ms": 1792795451026,
+   "timeline_samples": 23,
+   "source_run_json": "s3://example-results-bucket/matrix/q38-w3-r32/S7/rep1/run.json",
+   "topology": "t-pd-hic",
+   "router_mode": "kv"
+  }
+ ],
+ "result_of_record": false,
+ "derivation": "replay_start_ms/replay_end_ms = run.json aiperf_started_at/aiperf_ended_at (1 s resolution); sync_ms = run.json prometheus.window.start_s (min profiling request_start_ns of the aiperf export, as the driver's first_request_ms/take_sync); timeline.jsonl bounds checked to lie inside the replay",
+ "note": "W3-16K, n=1: there is no live take of q38-w3-r32; this file only feeds rerender.py jobs"
+}

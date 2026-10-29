@@ -1,0 +1,8 @@
+# Cell S4 = t-agg-hic + kv Frontend (agg 8x TP1, HiCache L2 200 GB + L3).
+# Rendered to ../../rendered/S4.yaml by scripts/render-track-q.sh.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../overlays/t-agg-hic
+components:
+  - ../../components/router-kv

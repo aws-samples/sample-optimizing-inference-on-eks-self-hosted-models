@@ -1,0 +1,17 @@
+{
+  "series": "matrix",
+  "scenario": "S0",
+  "rep": 1,
+  "seed": 43,
+  "topology": "t-agg",
+  "mode": "fixed-schedule",
+  "schedule": {
+    "rate": 0.5,
+    "seed": 43
+  },
+  "concurrency": null,
+  "aiperf": {
+    "rc": 0
+  },
+  "restarted_pods": []
+}
