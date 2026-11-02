@@ -14,8 +14,7 @@ combined on one `p6-b200.48xlarge` (8x NVIDIA B200) that serves `Qwen/Qwen3.8-27
 
 - **R** = KV cache-aware routing: the Dynamo Frontend's KV router (`DYN_ROUTER_MODE=kv`) instead of round-robin.
 - **O** = SGLang HiCache: KV offload from GPU memory to host RAM (L2) and local NVMe (L3, through NIXL). Dynamo KVBM is not used.
-- **D** = prefill/decode disaggregation: 4 prefill + 4 decode workers, with the KV moved over NIXL LIBFABRIC on EFA
-  ([an NVLink alternative](#choosing-the-pd-transport) exists for one node).
+- **D** = prefill/decode disaggregation: 4 prefill + 4 decode workers, with the KV moved over NIXL LIBFABRIC on EFA ([an NVLink alternative](#choosing-the-pd-transport) exists for one node).
 
 Every on/off combination is one cell, S0 (none) to S7 (all three), with the same model, image, GPUs and trace.
 Each cell is a Kustomize overlay; all eight are ready to apply in [examples/](examples/). The repository also holds
@@ -48,18 +47,23 @@ EFA for traffic between nodes. The published runs used EFA, not NVLink, and the 
 
 ### Choosing the PD transport
 
-The PD cells (S3, S5, S6, S7) come with two transports. EFA (NIXL LIBFABRIC) is the default and the transport of every
-published run and of the matrix driver. NVLink is a reference design for prefill and decode pods on the same node; EFA
-stays the transport for traffic between nodes. A test on another instance type (H200) found the two at parity, an
-inconclusive result, and measured the large cost of a silent TCP fallback with a default pod spec ([PD guide](docs/optimizations/pd-disaggregation/README.md#311-nvlink-on-one-node-design-reference-not-run-on-p6-b200)).
+**EFA** (Elastic Fabric Adapter, [AWS documentation](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/efa.html)) is the AWS network interface with OS-bypass (libfabric over the SRD protocol) that moves data node to node; it needs the EFA device plugin and one EFA device per pod. **NVLink** ([NVIDIA](https://www.nvidia.com/en-us/data-center/nvlink/)) is NVIDIA's GPU-to-GPU interconnect inside a node: it is not a network (and not NVMe storage), so it does not cross nodes. The PD cells (S3, S5, S6, S7) move the KV over either one with NIXL: LIBFABRIC on EFA, the default, or UCX `cuda_ipc` on NVLink, a reference design. When to use which:
+
+| | EFA (default) | NVLink (reference design) |
+|---|---|---|
+| Placement | Any node: prefill and decode may run on different nodes, or you scale beyond one node | Prefill and decode on the same node only |
+| Pods | `privileged` (LIBFABRIC needs it) and one EFA device each, no `hostPID` | `privileged` + `hostPID`, so a Pod Security `privileged` namespace; the EFA device stays |
+| Use it when | You want the path of the published runs, or your pods cannot get `hostPID` | The KV transfer rate, not the model compute, is the bottleneck (an inference, not a measurement: small or fast models, a skewed P:D ratio, contention on the NIC) |
+| Evidence | The published runs on p6-b200 | A design reference, not run on p6-b200; at parity with EFA on H200, inconclusive |
+
+The published runs on p6-b200 used EFA (LIBFABRIC) only. NVLink is a design reference that was not run on p6-b200, and none of the published runs used it. On a `p5e.48xlarge` (H200), one series found EFA and NVLink at parity, an INCONCLUSIVE result; the large measured effect was avoiding the silent TCP fallback of a default pod spec ([PD guide, 3.1.1](docs/optimizations/pd-disaggregation/README.md#311-nvlink-on-one-node-design-reference-not-run-on-p6-b200)). Both transports still need EFA between nodes.
 
 ```bash
 kubectl --context "$KUBE_CONTEXT" apply --server-side -f manifests/track-q-qwen38/rendered/S5.yaml          # EFA (default)
 kubectl --context "$KUBE_CONTEXT" apply --server-side -f manifests/track-q-qwen38/rendered-nvlink/S5.yaml  # NVLink (reference design)
 ```
 
-Delete one before you apply the other (same namespace `s-dis`, same DGD `q38`); for S3 the pair is `examples/03-pd-disaggregation`
-and [`examples/08-pd-nvlink`](examples/08-pd-nvlink/). NVLink needs `privileged` and `hostPID` pods, so a Pod Security `privileged` namespace.
+Delete one before you apply the other (same namespace `s-dis`, same DGD `q38`). Each PD example carries both options: `examples/03-pd-disaggregation` (EFA) and `examples/03-pd-disaggregation/nvlink` (NVLink), and likewise `examples/<folder>/nvlink` for 04, 06 and 07. NVLink needs `privileged` and `hostPID` pods, so a Pod Security `privileged` namespace.
 
 ## Versions
 
@@ -171,7 +175,7 @@ At 25 req/s, from [docs/results/w3-16k-cells.csv](docs/results/w3-16k-cells.csv)
 | `terraform/` | `bootstrap/` (S3 buckets) and `cluster/` (VPC, EKS Auto Mode, GPU pools, Dynamo, observability): [terraform/README.md](terraform/README.md) |
 | `scripts/` | `gen_env.py`, `10-stage-model.sh`, `11-prefetch.sh`, `13-prepull.sh`, `50-toggle-router.sh`, `preflight-flags.sh` and the offline render scripts |
 | `manifests/` | Kustomize: `track-q-qwen38/` (cells S0-S7, components, committed renders, the NVLink variants), `config/` (the platform env), `node-ops/`, `bench/`, `stage-mocker/`, `demo/` |
-| `examples/` | [examples/](examples/): one folder per cell, all eight (S0 to S7), with its render and its diff against the baseline, and `08-pd-nvlink` |
+| `examples/` | [examples/](examples/): one folder per cell, all eight (S0 to S7), with its render and its diff against the baseline; the four PD folders also hold the NVLink option in `nvlink/` |
 | `tools/` | `matrix_driver/` (in-cluster driver), `demo_bench/` (trace generator and analysis CLI), `stage_model/` (staging Job), `bench-image/` |
 | `plans/` | Driver plans: `w3-16k/` (W3-16K) and `w2-long-context/` |
 | `workloads/` | `w3-16k/`: the workload parameters and an offline regeneration of its trace |

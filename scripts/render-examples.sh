@@ -3,25 +3,30 @@
 # SPDX-License-Identifier: MIT-0
 # render-examples.sh [OUT_ROOT]
 #
-# Regenerates the committed per-technique views under examples/ (one folder per Track Q cell, plus 08-pd-nvlink, the
-# NVLink alternative of cell S3, a design reference built on manifests/track-q-qwen38/variants-nvlink/S3):
+# Regenerates the committed per-technique views under examples/ (one folder per Track Q cell, S0 to S7):
 #   OUT_ROOT/<dir>/rendered.yaml         = `kubectl kustomize examples/<dir>` (the folder only points at its cell)
 #   OUT_ROOT/<dir>/diff-vs-baseline.diff = per-component diff of 00-baseline/rendered.yaml vs <dir>/rendered.yaml
 #                                          (every folder except 00-baseline; layout below)
-# Default OUT_ROOT: examples (the files tests/manifests/test_420 drift-checks). The kustomizations, READMEs and
+# and, for the four prefill/decode folders (03-pd-disaggregation, 04-all-three, 06-kv-router-pd, 07-pd-hicache), the
+# NVLink option next to the EFA default (a design reference built on manifests/track-q-qwen38/variants-nvlink/<cell>):
+#   OUT_ROOT/<dir>/nvlink/rendered.yaml     = `kubectl kustomize examples/<dir>/nvlink`
+#   OUT_ROOT/<dir>/nvlink/diff-vs-efa.diff  = plain `diff -u` of <dir>/rendered.yaml (EFA) vs <dir>/nvlink/rendered.yaml,
+#                                             headers `--- a/<dir>/rendered.yaml` and `+++ b/<dir>/nvlink/rendered.yaml`
+#                                             (no timestamps), nothing omitted
+# Default OUT_ROOT: examples (the files tests/manifests/test_420 and test_421 drift-check). The kustomizations, READMEs and
 # the Track Q tree are inputs only. Offline: it only renders and never talks to a cluster. Every folder is
 # rendered and diffed first; OUT_ROOT is written only once all of them succeeded.
 #
-# Diff layout. Each render is cut into parts: `metadata` (everything before `  components:`) and one part per
-# `  - name: X` component. The diff holds one section per changed part: metadata first, then the variant's
+# Diff layout of diff-vs-baseline.diff. Each render is cut into parts: `metadata` (everything before `  components:`) and
+# one part per `  - name: X` component. The diff holds one section per changed part: metadata first, then the variant's
 # components in render order (identical parts get no section). Frontend is compared with the baseline Frontend,
 # every other component (Worker, prefill, decode) with the baseline Worker. Section headers:
 #   --- a/00-baseline/rendered.yaml#<baseline part>
 #   +++ b/<dir>/rendered.yaml#<variant part>
 # * One worker component (01-kv-router, 02-hicache, 05-kv-router-hicache): each section is the plain `diff -u`
 #   of the two parts.
-# * Several worker components (03-pd-disaggregation, 04-all-three, 06-kv-router-pd, 07-pd-hicache, 08-pd-nvlink:
-#   prefill and decode): `diff -U1`, and
+# * Several worker components (03-pd-disaggregation, 04-all-three, 06-kv-router-pd, 07-pd-hicache: prefill and
+#   decode): `diff -U1`, and
 #   - the GPU-pin preamble of the launch script (components/pd-efa) becomes
 #     `# ... <N> added lines omitted (GPU-pin preamble)`: the first worker section (prefill) still shows its
 #     leading comment and its tail from the `export` line, a later one (decode) collapses all of it;
@@ -35,7 +40,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 EXAMPLES_DIR="$REPO_ROOT/examples"
 BASELINE="00-baseline"
-FOLDERS="00-baseline 01-kv-router 02-hicache 03-pd-disaggregation 04-all-three 05-kv-router-hicache 06-kv-router-pd 07-pd-hicache 08-pd-nvlink"
+FOLDERS="00-baseline 01-kv-router 02-hicache 03-pd-disaggregation 04-all-three 05-kv-router-hicache 06-kv-router-pd 07-pd-hicache"
+NVL_FOLDERS="03-pd-disaggregation 04-all-three 06-kv-router-pd 07-pd-hicache" # the folders with an nvlink/ sub-folder
+NVL="nvlink"
 PREAMBLE_MIN=20 # shortest code run of the GPU-pin preamble worth collapsing
 
 if [ $# -gt 1 ]; then
@@ -134,6 +141,21 @@ for dir in $FOLDERS; do
   mkdir -p "$work/$dir" "$work/parts/$dir"
   kubectl kustomize "$EXAMPLES_DIR/$dir" </dev/null >"$work/$dir/rendered.yaml"
 done
+for dir in $NVL_FOLDERS; do
+  mkdir -p "$work/$dir/$NVL"
+  kubectl kustomize "$EXAMPLES_DIR/$dir/$NVL" </dev/null >"$work/$dir/$NVL/rendered.yaml"
+  # diff exits 1 when the renders differ (the expected case); 0 (identical) or above 1 is an error.
+  rc=0
+  diff -u "$work/$dir/rendered.yaml" "$work/$dir/$NVL/rendered.yaml" >"$work/section" || rc=$?
+  if [ "$rc" -ne 1 ]; then
+    echo "diff of $dir vs $dir/$NVL failed or found no change (exit $rc)" >&2
+    exit 1
+  fi
+  {
+    printf -- '--- a/%s/rendered.yaml\n+++ b/%s/%s/rendered.yaml\n' "$dir" "$dir" "$NVL"
+    tail -n +3 "$work/section"
+  } >"$work/$dir/$NVL/diff-vs-efa.diff"
+done
 split_parts "$work/$BASELINE/rendered.yaml" "$work/parts/$BASELINE" >/dev/null
 for dir in $FOLDERS; do
   [ "$dir" = "$BASELINE" ] && continue
@@ -177,4 +199,9 @@ for dir in $FOLDERS; do
     mv "$work/$dir/diff-vs-baseline.diff" "$out_root/$dir/diff-vs-baseline.diff"
   fi
 done
-printf '%s %s folders=%s out_root=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(basename "$0")" "${FOLDERS// /,}" "$out_root" >&2
+for dir in $NVL_FOLDERS; do
+  mkdir -p "$out_root/$dir/$NVL"
+  mv "$work/$dir/$NVL/rendered.yaml" "$out_root/$dir/$NVL/rendered.yaml"
+  mv "$work/$dir/$NVL/diff-vs-efa.diff" "$out_root/$dir/$NVL/diff-vs-efa.diff"
+done
+printf '%s %s folders=%s nvlink=%s out_root=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(basename "$0")" "${FOLDERS// /,}" "${NVL_FOLDERS// /,}" "$out_root" >&2

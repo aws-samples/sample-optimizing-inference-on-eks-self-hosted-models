@@ -19,7 +19,7 @@ Citation convention: `v1.5.1 <path>` means the NVIDIA Dynamo tag v1.5.1 (`209366
 | Topologies | `t-dis` (namespace `s-dis`), `t-dis-hic` (namespace `s-dis-hic`) under `manifests/track-q-qwen38/topologies` |
 | Shape | 4 prefill pods + 4 decode pods, TP1, one GPU and one EFA interface each, on one `p6-b200.48xlarge` |
 | Transport | NIXL `LIBFABRIC` over EFA, prefill and decode in separate pods. This is the default and the transport of every published run. An NVLink alternative for prefill and decode pods on the same node is a design reference, not run on p6-b200 ([3.1.1](#311-nvlink-on-one-node-design-reference-not-run-on-p6-b200)) |
-| Examples | [`examples/03-pd-disaggregation`](../../../examples/03-pd-disaggregation/) (S3) and [`examples/04-all-three`](../../../examples/04-all-three/) (S7). Paired with the other techniques in [`examples/06-kv-router-pd`](../../../examples/06-kv-router-pd/) (S5, R+D) and [`examples/07-pd-hicache`](../../../examples/07-pd-hicache/) (S6, O+D). The NVLink alternative of S3 is [`examples/08-pd-nvlink`](../../../examples/08-pd-nvlink/) |
+| Examples | [`examples/03-pd-disaggregation`](../../../examples/03-pd-disaggregation/) (S3) and [`examples/04-all-three`](../../../examples/04-all-three/) (S7). Paired with the other techniques in [`examples/06-kv-router-pd`](../../../examples/06-kv-router-pd/) (S5, R+D) and [`examples/07-pd-hicache`](../../../examples/07-pd-hicache/) (S6, O+D). Each of the four carries both transports: the folder itself is EFA (the default) and its `nvlink/` sub-folder is the NVLink option, for example [`examples/03-pd-disaggregation/nvlink`](../../../examples/03-pd-disaggregation/nvlink/) ([3.1.1](#311-nvlink-on-one-node-design-reference-not-run-on-p6-b200)) |
 | Claim under test | PD trades TTFT for a steadier ITL. It is **not** expected to give more throughput (a design assumption) |
 
 ---
@@ -73,6 +73,8 @@ The flow is **prefill-first**:
 
 ### 3.1 Transport: NIXL LIBFABRIC over EFA, cross-pod
 
+**What EFA is.** EFA (Elastic Fabric Adapter, described in the Amazon EC2 User Guide and linked from the [repo README](../../../README.md#choosing-the-pd-transport)) is the AWS network interface for traffic between instances. It gives OS-bypass with the SRD protocol, and applications reach it through libfabric, which is what the NIXL LIBFABRIC backend uses; it works node to node, so prefill and decode may run on different nodes. On EKS it needs the EFA device plugin, which advertises `vpc.amazonaws.com/efa`, and the PD cells request one EFA device per pod.
+
 On one node, the cross-pod prefill-to-decode path was the open question: NVIDIA's measured multi-pod B200 disaggregated recipes move KV over InfiniBand, which p6-b200 does not have. An earlier transport gate (Qwen3-32B-FP8, 1 prefill + 1 decode, TP1) tried five variants, and only **NIXL LIBFABRIC over EFA** passed as a cross-pod transport (20/20 requests, LIBFABRIC instantiated, 0 failed transfers, about 48 GB/s lower bound). UCX on default pods, UCX with `hostIPC` and Mooncake over NVLink failed; both roles in one pod over UCX worked but showed no `cuda_ipc` evidence. The runs of record use LIBFABRIC for every PD cell. That gate did not include the NVLink recipe of [3.1.1](#311-nvlink-on-one-node-design-reference-not-run-on-p6-b200) (NIXL UCX with `cuda_ipc`, `components/pd-nvlink`), so its Mooncake result says nothing about it, and that recipe was not run on p6-b200.
 
 What the runs of record measured on Track Q:
@@ -83,6 +85,8 @@ What the runs of record measured on Track Q:
 The matrix driver refuses a PD run unless every engine's boot log shows `Backend LIBFABRIC was instantiated` (or `KVManager initialized with backend: LIBFABRIC`). Track Q does not enable NIXL telemetry; the transfer evidence of record is SGLang's own `sglang:kv_transfer_*` and `sglang:num_transfer_failed_reqs_total` per engine plus the eth0 delta (the EFA byte counters were not readable on that node).
 
 ### 3.1.1 NVLink on one node: design reference (not run on p6-b200)
+
+**What NVLink is.** NVLink ([NVIDIA](https://www.nvidia.com/en-us/data-center/nvlink/)) is NVIDIA's GPU-to-GPU interconnect inside a node. It is not a network (and not NVMe storage): it links the GPUs of one server, so it does not cross nodes. NIXL reaches it through UCX and its `cuda_ipc` transport.
 
 This section describes a second KV path for prefill and decode pods that share one node. It is a **design reference**: the repository ships it, but the recipe was not run on p6-b200. EFA stays the default. The published runs of record used EFA (NIXL LIBFABRIC) for every PD cell. None of the published runs used NVLink, and no figure of sections 5 and 6 comes from it.
 
@@ -98,12 +102,23 @@ flowchart LR
 
 - **What it changes.** `components/pd-nvlink` is applied after `components/pd-efa`, on the prefill and decode pods. It switches `SGLANG_DISAGGREGATION_NIXL_BACKEND` from `LIBFABRIC` to `UCX`, sets `UCX_TLS=cuda_ipc,cuda_copy,tcp`, `UCX_PROTO_INFO=y` and `UCX_LOG_LEVEL=info`, and adds `hostPID: true`. Everything else of `pd-efa` stays: the `FI_*` variables, the EFA interface request, `privileged: true` and the GPU-pin wrapper. The pods keep their EFA interface because EFA stays the transport for traffic between nodes.
 - **Which cells.** S3, S5, S6 and S7 have an NVLink variant: the overlays are in `manifests/track-q-qwen38/variants-nvlink/` (the published cell plus `pd-nvlink`) and their committed renders in `manifests/track-q-qwen38/rendered-nvlink/`. The published renders in `manifests/track-q-qwen38/rendered/` and the cells S0 to S7 are unchanged.
-- **How to choose.** EFA is the default: apply `examples/03-pd-disaggregation` or `manifests/track-q-qwen38/rendered/S5.yaml`. For NVLink, apply `examples/08-pd-nvlink` or `manifests/track-q-qwen38/rendered-nvlink/S5.yaml` (commands in [section 4](#4-run-it)). Both trees deploy the same namespace and the DGD `q38`, so delete the one you applied before you apply the other. The matrix driver refuses a PD run without the LIBFABRIC boot line, so it cannot run the NVLink cells: apply them by hand.
+- **How to choose.** EFA is the default: apply a PD example folder, for example `examples/03-pd-disaggregation`, or `manifests/track-q-qwen38/rendered/S5.yaml`. For NVLink, apply the `nvlink/` sub-folder of the same example (`examples/<folder>/nvlink`, for example `examples/03-pd-disaggregation/nvlink`) or `manifests/track-q-qwen38/rendered-nvlink/S5.yaml` (commands in [section 4](#4-run-it)). The four PD examples (03, 04, 06, 07) each carry both options. Both trees deploy the same namespace and the DGD `q38`, so delete the one you applied before you apply the other. The matrix driver refuses a PD run without the LIBFABRIC boot line, so it cannot run the NVLink cells: apply them by hand.
+
+#### When to use which
+
+| | EFA (default) | NVLink (design reference) |
+|---|---|---|
+| Placement | Prefill and decode may run on different nodes, or you scale beyond one node | Prefill and decode on the same node only; EFA still carries the traffic between nodes |
+| Pods | `privileged` (LIBFABRIC needs it), one EFA device each, no `hostPID` | `privileged` + `hostPID`, so a Pod Security `privileged` namespace; the EFA device stays |
+| Use it when | You want the default, the path of the published runs and of the matrix driver, or your pods cannot get `hostPID` | The KV transfer rate, not the model compute, is the bottleneck. Inferred, not measured: small or fast models (a short prefill leaves less time to hide the transfer), a skewed P:D ratio (one prefill feeds many decode pods), contention on the NIC |
+| Evidence | Every published run on p6-b200 | Not run on p6-b200; at parity with EFA in one H200 series, inconclusive (below) |
+
+For this sample's 27B model the KV transfer overlaps the prefill (E1 in [3.1](#31-transport-nixl-libfabric-over-efa-cross-pod)), so the link rarely limits the end-to-end latency (INFERRED). Pick EFA unless your deployment matches the NVLink column, and verify the transport either way.
 
 **What was measured, and where.** Both measurements ran on another instance type than the rest of this guide, one `p5e.48xlarge` (8x H200), with the public SGLang 0.5.21 image of this sample, not on p6-b200. They are unpublished internal measurements that cannot be reproduced from this repository.
 
 - **EFA against NVLink: parity.** An adaptation of cell S5 for H200 (`Qwen/Qwen3.8-27B-FP8` at TP1, 4P4D on one node) replayed the W3-16K workload adapted to that instance at 6 req/s, with n=3 runs per arm, once over EFA and once over NVLink. It is a single series, not a result of record. Continuation TTFT p50 was 0.1386 s over EFA and 0.1395 s over NVLink (ratio 1.0066, 95% interval of the log ratio about -2.4% to +2.8%), and the mean KV transfer latency was 153.8 ms over EFA and 150.8 ms over NVLink (unpublished internal measurement). The two transports are at parity, and the rule fixed before the runs left the result INCONCLUSIVE. This guide does not claim that NVLink is faster than EFA.
-- **NVLink recipe against the silent TCP fallback (1P1D).** One prefill and one decode pod on one node, 10 sequential requests per prompt size, one run per arm. With a default pod spec, UCX did not use `cuda_ipc`: the KV bytes left the pod over TCP, the NVLink counters did not move, nothing logged an error, and TTFT grew with the prompt length. With `Qwen/Qwen3.8-27B-FP8`, TTFT p50 at a 32,000-token prompt (the 32K point of the sweep) was 9.9 s with the default pod spec and 2.0 s with the recipe (unpublished internal measurement). With `Qwen/Qwen3-0.6B` it was 14 s against 0.33 s (unpublished internal measurement). With the recipe the NVLink counters grew by about the KV bytes moved.
+- **NVLink recipe against the silent TCP fallback (1P1D).** One prefill and one decode pod on one node, 10 sequential requests per prompt size, one run per arm. With a default pod spec, UCX did not use `cuda_ipc`: the KV bytes left the pod over TCP, the NVLink counters did not move, nothing logged an error, and TTFT grew with the prompt length. With `Qwen/Qwen3.8-27B-FP8`, TTFT p50 at a 32,000-token prompt (the 32K point of the sweep) was 9.9 s with the default pod spec and 2.0 s with the recipe (unpublished internal measurement). With `Qwen/Qwen3-0.6B` it was 14 s against 0.33 s (unpublished internal measurement). With the recipe the NVLink counters grew by about the KV bytes moved. The KV moved across pods at about 387 GB/s over `cuda_ipc` with the recipe and at about 0.26 GB/s over the silent TCP fallback of the default pod spec (unpublished internal measurement).
 
 **How to read these numbers.** The large measured effect is avoiding the silent TCP fallback of a default pod, not NVLink against EFA: the comparison arm of the 1P1D runs is a default pod spec, not EFA. The cells of this sample never run a default pod spec for the KV path, because the EFA cells select LIBFABRIC and the NVLink cells carry the recipe. The p5e figures are not comparable with the B200 figures of sections 5 and 6 (another GPU, trace and rate).
 
@@ -169,13 +184,13 @@ kubectl --context "$KUBE_CONTEXT" -n s-dis logs -l nvidia.com/dynamo-component-t
 
 # The same cell over NVLink (design reference, one node): delete the EFA one first, because both use namespace s-dis and the DGD q38
 kubectl --context "$KUBE_CONTEXT" delete -k examples/03-pd-disaggregation
-kubectl --context "$KUBE_CONTEXT" apply --server-side -k examples/08-pd-nvlink
+kubectl --context "$KUBE_CONTEXT" apply --server-side -k examples/03-pd-disaggregation/nvlink
 
 # Transport check for NVLink: the UCX protocol table must list cuda_ipc (the engines log it because UCX_PROTO_INFO=y)
 kubectl --context "$KUBE_CONTEXT" -n s-dis logs -l nvidia.com/dynamo-component-type=prefill -c main --tail=-1 | grep cuda_ipc
 ```
 
-- **Choosing the transport.** `examples/03-pd-disaggregation` (EFA) and `examples/08-pd-nvlink` (NVLink) are the two examples of S3; S5, S6 and S7 have the same pair as the committed renders `manifests/track-q-qwen38/rendered/S<n>.yaml` (EFA, default) and `manifests/track-q-qwen38/rendered-nvlink/S<n>.yaml` (NVLink, design reference). EFA remains the default and the only transport the recorded runs and the matrix driver use. The NVLink check adapts to your deployment (namespace and labels) and is not part of the tested cells.
+- **Choosing the transport.** Each PD example carries both options: the folder (EFA, default) and its `nvlink/` sub-folder (NVLink, design reference), so `examples/03-pd-disaggregation` and `examples/03-pd-disaggregation/nvlink` are the pair for S3, and `04-all-three` (S7), `06-kv-router-pd` (S5) and `07-pd-hicache` (S6) have the same pair. The committed renders `manifests/track-q-qwen38/rendered/S<n>.yaml` (EFA) and `manifests/track-q-qwen38/rendered-nvlink/S<n>.yaml` (NVLink) hold the same manifests. When to use which: [3.1.1](#311-nvlink-on-one-node-design-reference-not-run-on-p6-b200). EFA remains the default and the only transport the recorded runs and the matrix driver use. The NVLink check adapts to your deployment (namespace and labels) and is not part of the tested cells.
 
 - **Recorded runs.** The matrix driver (`tools/matrix_driver`, plans in `plans/w3-16k/`) deploys a cell, waits for the 4 + 4 workers, resets and verifies the caches, replays the frozen trace and records `kv_transfer_*`, eth0 and the per-request prefill/decode worker ids. Its preflight expects exactly 4 prefill and 4 decode pods.
 
@@ -237,6 +252,8 @@ So the right P:D ratio moves with the phase mix of the load, and a static split 
 | EFA env (required) | `components/pd-efa/patch.yaml` | `FI_PROVIDER=efa`, `FI_EFA_USE_DEVICE_RDMA=1`, `FI_EFA_ENABLE_SHM_TRANSFER=0`, `FI_EFA_ENABLE_SHM=0`, explicit `LD_LIBRARY_PATH` | Required by v1.5.1 `efa-on-aws.mdx:159-172`. LIBFABRIC also needs `privileged: true` for `fi_mr_reg` (`:188-212`) and an image with the EFA libraries |
 | NVLink recipe (design reference) | `components/pd-nvlink/patch.yaml`, applied after `pd-efa` | `UCX_TLS=cuda_ipc,cuda_copy,tcp`, `UCX_PROTO_INFO=y`, `UCX_LOG_LEVEL=info`, `hostPID: true` | Same node only; needs a Pod Security `privileged` namespace; the EFA settings above stay in place |
 | EFA tuning (not set) | add to `components/pd-efa` | none | v1.5.1 `efa-on-aws.mdx:174-184`: `FI_EFA_FORK_SAFE=0`, `FI_EFA_USE_HUGE_PAGE=1` (plus hugepages), `FI_EFA_MR_MAX_CACHED_COUNT=524288`, `FI_EFA_MR_MAX_CACHED_SIZE=0` |
+
+Which transport to pick, EFA or NVLink, is in [3.1.1, When to use which](#311-nvlink-on-one-node-design-reference-not-run-on-p6-b200). To try NVLink on a PD example, apply its `nvlink/` sub-folder (`examples/<folder>/nvlink`); its `nvlink/diff-vs-efa.diff` lists exactly the knobs of the NVLink recipe row above.
 
 ### 7.2 Ports
 

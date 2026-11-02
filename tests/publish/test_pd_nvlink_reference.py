@@ -4,10 +4,11 @@
 
 The sample keeps EFA (NIXL LIBFABRIC) as the default transport of the prefill/decode (D) cells: the published runs on p6-b200
 used it.  It adds an NVLink alternative for the same-node KV path (``components/pd-nvlink``, ``variants-nvlink/``,
-``rendered-nvlink/``, ``examples/08-pd-nvlink``) and a reference architecture picture.  Both are a DESIGN REFERENCE, not a
+``rendered-nvlink/``, and the ``nvlink/`` sub-folder of the four prefill/decode example folders) and a reference architecture picture.  Both are a DESIGN REFERENCE, not a
 measurement.  This file pins the text side of that work (the manifests are pinned by ``tests/manifests/test_421`` and ``test_422``):
 
-* PD guide: the EFA example and the NVLink example side by side, how to select one (``rendered/S5.yaml`` or
+* PD guide: the EFA example and the NVLink option of the same folder side by side (``examples/03-pd-disaggregation`` and
+  ``examples/03-pd-disaggregation/nvlink``; there is no ninth example), how to select one (``rendered/S5.yaml`` or
   ``rendered-nvlink/S5.yaml``), the design reference label, "the published measurements used EFA", the p5e.48xlarge parity
   figures exactly (each one marked as an unpublished internal measurement) and the INCONCLUSIVE state, the 1P1D TCP-fallback
   figures, the privileged + hostPID sentence, "same node only", "EFA between nodes", and none of the claims the honesty rules forbid.
@@ -54,15 +55,18 @@ GRAFANA_EDGE_SHA256 = "5f5418d4d9205fd55c4efc5f3362e2dfed2e527653ef13d1e4f3a2dc0
 OLD_DRAWIO_SHA256 = "e0dd479e90a2a8ac681d63bea99b10c7691511d08d2416ba5310f1ec4bf24650"
 OLD_PNG_SHA256 = "17ae02d904e2f4df35b589d75fe1975f7528d927ed9ef838d69b7128dd2f904f"
 TQ = ROOT / "manifests/track-q-qwen38"
+PD_EXAMPLES = ["03-pd-disaggregation", "04-all-three", "06-kv-router-pd", "07-pd-hicache"]
+PD_READMES = [ROOT / "examples" / f / "README.md" for f in PD_EXAMPLES]
+NVL_KUSTOMIZATIONS = [ROOT / "examples" / f / "nvlink" / "kustomization.yaml" for f in PD_EXAMPLES]
 NEW_TEXT = [
     README, GUIDE, TROUBLE, DEPLOY, EXAMPLES_README,
-    ROOT / "examples/08-pd-nvlink/README.md", ROOT / "examples/08-pd-nvlink/kustomization.yaml",
+    *PD_READMES, *NVL_KUSTOMIZATIONS,
     TQ / "variants-nvlink/README.md", TQ / "rendered-nvlink/README.md",
     TQ / "components/pd-nvlink/kustomization.yaml", TQ / "components/pd-nvlink/patch.yaml",
     ROOT / "scripts/render-track-q-nvlink.sh",
 ]
 # Documents the honesty rules apply to (everything a reader can take a claim from).
-CLAIM_TEXT = [README, GUIDE, TROUBLE, DEPLOY, EXAMPLES_README, ROOT / "examples/08-pd-nvlink/README.md",
+CLAIM_TEXT = [README, GUIDE, TROUBLE, DEPLOY, EXAMPLES_README, *PD_READMES,
               TQ / "variants-nvlink/README.md", TQ / "rendered-nvlink/README.md"]
 
 LABEL = re.compile(r"(?i)design reference|reference design")
@@ -153,11 +157,11 @@ def test_the_claim_detector_accepts_the_honest_statements(fine: str) -> None:
 
 # ----------------------------------------------------------------------------- the PD guide
 def test_guide_shows_the_efa_example_and_the_nvlink_example_side_by_side() -> None:
-    sections = [s for s in _h2_sections(_read(GUIDE)) if "examples/03-pd-disaggregation" in s and "examples/08-pd-nvlink" in s]
-    assert sections, "one section of the PD guide shows both `examples/03-pd-disaggregation` (EFA) and `examples/08-pd-nvlink` (NVLink)"
+    sections = [s for s in _h2_sections(_read(GUIDE)) if re.search(r"examples/03-pd-disaggregation(?![\w/-])", s) and "examples/03-pd-disaggregation/nvlink" in s]
+    assert sections, "one section of the PD guide shows both `examples/03-pd-disaggregation` (EFA) and `examples/03-pd-disaggregation/nvlink` (NVLink)"
     commands = [ln for s in sections for ln in s.splitlines() if "kubectl" in ln and "apply" in ln]
-    assert any("examples/03-pd-disaggregation" in c for c in commands) and any("examples/08-pd-nvlink" in c for c in commands), (
-        "both examples appear as `kubectl apply -k` commands")
+    assert any(re.search(r"examples/03-pd-disaggregation(?![\w/-])", c) for c in commands) and any("examples/03-pd-disaggregation/nvlink" in c for c in commands), (
+        "both options appear as `kubectl apply -k` commands")
 
 
 def test_guide_explains_how_to_select_the_transport() -> None:
@@ -297,7 +301,7 @@ def test_readme_explains_how_to_select_the_transport() -> None:
     flat = _flat(_read(README))
     assert "rendered/S5.yaml" in flat and "rendered-nvlink/S5.yaml" in flat
     assert re.search(r"(?i)\bEFA\b[^.]*\b(default|remains|stays)\b|\b(default|remains|stays)\b[^.]*\bEFA\b", flat)
-    assert "examples/08-pd-nvlink" in flat
+    assert "examples/03-pd-disaggregation/nvlink" in flat, "the NVLink option of an example is its nvlink/ sub-folder"
 
 
 # ----------------------------------------------------------------------------- the honesty rules over every document
@@ -486,7 +490,7 @@ def test_every_path_and_script_a_new_text_names_exists(p: Path) -> None:
     assert not bad, f"{p.relative_to(ROOT)} names paths or scripts that do not exist: {bad}"
 
 
-@pytest.mark.parametrize("p", [GUIDE, TROUBLE, README, EXAMPLES_README, ROOT / "examples/08-pd-nvlink/README.md",
+@pytest.mark.parametrize("p", [GUIDE, TROUBLE, README, DEPLOY, EXAMPLES_README, *PD_READMES,
                                TQ / "variants-nvlink/README.md", TQ / "rendered-nvlink/README.md"], ids=lambda p: str(p.relative_to(ROOT)))
 def test_every_relative_link_and_anchor_of_a_new_text_resolves(p: Path) -> None:
     if not p.is_file():

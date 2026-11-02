@@ -6,7 +6,7 @@
 ``tests/manifests/test_412`` pins that.  The NVLink alternative of the four prefill/decode cells therefore has its own script,
 modelled on it: ``OUT_DIR/S<n>.yaml = kubectl kustomize manifests/track-q-qwen38/variants-nvlink/S<n>`` for S3, S5, S6, S7,
 default ``OUT_DIR`` = ``manifests/track-q-qwen38/rendered-nvlink``.  It is offline (it only renders) and it renders every cell
-before it writes any file.  ``scripts/render-examples.sh`` renders ``examples/08-pd-nvlink`` (see
+before it writes any file.  ``scripts/render-examples.sh`` renders the ``nvlink/`` sub-folder of the four prefill/decode example folders (see
 ``tests/manifests/test_420_examples.py`` and ``test_421_example_pd_nvlink.py``).
 
 Nothing here weakens an expectation: a missing script is a failure, never a skip.

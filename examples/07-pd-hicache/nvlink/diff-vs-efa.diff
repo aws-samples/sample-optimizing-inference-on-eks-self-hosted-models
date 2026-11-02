@@ -1,0 +1,62 @@
+--- a/07-pd-hicache/rendered.yaml
++++ b/07-pd-hicache/nvlink/rendered.yaml
+@@ -206,7 +206,7 @@
+           - name: SGLANG_HICACHE_NIXL_BACKEND_STORAGE_DIR
+             value: /kvcache/l3
+           - name: SGLANG_DISAGGREGATION_NIXL_BACKEND
+-            value: LIBFABRIC
++            value: UCX
+           - name: FI_PROVIDER
+             value: efa
+           - name: FI_EFA_USE_DEVICE_RDMA
+@@ -219,6 +219,12 @@
+             value: /opt/amazon/efa/lib:/opt/dynamo/nixl-ucx-compat:/opt/dynamo/nixl-capi:/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/cuda/lib64
+           - name: EXPECTED_GPUS
+             value: "1"
++          - name: UCX_TLS
++            value: cuda_ipc,cuda_copy,tcp
++          - name: UCX_PROTO_INFO
++            value: "y"
++          - name: UCX_LOG_LEVEL
++            value: info
+           image: nvcr.io/nvidia/ai-dynamo/sglang-runtime:1.6.0-efa@sha256:d574951b0dbd037bdcaabe121431a83cd047a5c106cb243fe6f2f97f2e456cd2
+           imagePullPolicy: IfNotPresent
+           livenessProbe:
+@@ -267,6 +273,7 @@
+             name: hicache-l3
+             subPathExpr: $(POD_NAME)
+           workingDir: /workspace
++        hostPID: true
+         initContainers:
+         - args:
+           - |
+@@ -469,7 +476,7 @@
+           - name: SGLANG_CACHE_DIR
+             value: /compile-cache/sglang
+           - name: SGLANG_DISAGGREGATION_NIXL_BACKEND
+-            value: LIBFABRIC
++            value: UCX
+           - name: FI_PROVIDER
+             value: efa
+           - name: FI_EFA_USE_DEVICE_RDMA
+@@ -482,6 +489,12 @@
+             value: /opt/amazon/efa/lib:/opt/dynamo/nixl-ucx-compat:/opt/dynamo/nixl-capi:/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/cuda/lib64
+           - name: EXPECTED_GPUS
+             value: "1"
++          - name: UCX_TLS
++            value: cuda_ipc,cuda_copy,tcp
++          - name: UCX_PROTO_INFO
++            value: "y"
++          - name: UCX_LOG_LEVEL
++            value: info
+           image: nvcr.io/nvidia/ai-dynamo/sglang-runtime:1.6.0-efa@sha256:d574951b0dbd037bdcaabe121431a83cd047a5c106cb243fe6f2f97f2e456cd2
+           imagePullPolicy: IfNotPresent
+           livenessProbe:
+@@ -527,6 +540,7 @@
+           - mountPath: /compile-cache
+             name: compile-cache
+           workingDir: /workspace
++        hostPID: true
+         initContainers:
+         - args:
+           - |

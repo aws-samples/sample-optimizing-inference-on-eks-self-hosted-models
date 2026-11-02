@@ -192,8 +192,10 @@ What changes it: on EFA, `manifests/track-q-qwen38/components/pd-efa` (LIBFABRIC
 per pod). On one node with NVLink, `manifests/track-q-qwen38/components/pd-nvlink` (the UCX recipe), which is a design
 reference: it needs `privileged: true` and `hostPID: true`, was not run on p6-b200, and works on one node only; across
 nodes EFA is still the path. Apply the NVLink variant of a cell from `manifests/track-q-qwen38/rendered-nvlink/` or
-`examples/08-pd-nvlink` and the EFA one from `manifests/track-q-qwen38/rendered/` or `examples/03-pd-disaggregation`;
-the choice and its limits are in [the PD guide](optimizations/pd-disaggregation/README.md#311-nvlink-on-one-node-design-reference-not-run-on-p6-b200).
+the `nvlink/` sub-folder of a PD example (`examples/<folder>/nvlink`, for example `examples/03-pd-disaggregation/nvlink`),
+and the EFA one from `manifests/track-q-qwen38/rendered/` or the folder itself (`examples/03-pd-disaggregation`). When to
+use EFA and when to use NVLink, and the limits: [the PD guide](optimizations/pd-disaggregation/README.md#311-nvlink-on-one-node-design-reference-not-run-on-p6-b200)
+and [Choosing the PD transport](../README.md#choosing-the-pd-transport).
 
 ## Model staging exit codes
 

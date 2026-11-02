@@ -15,12 +15,18 @@
 
 Each folder: ``kustomization.yaml`` (only resource = ``../../manifests/track-q-qwen38/cells/S<n>``), ``rendered.yaml``
 (= ``kubectl kustomize`` of the folder), ``diff-vs-baseline.diff`` (unified diff of rendered.yaml vs the baseline's; absent
-for 00-baseline) and ``README.md``.  ``examples/README.md`` holds one table folder -> cell -> R/O/D switches, and the
-examples table of ``docs/DEPLOY.md`` section 6 lists every folder with its cell and namespace.
+for 00-baseline) and ``README.md``.  ``examples/README.md`` holds one table folder -> cell -> R/O/D switches + PD transport,
+and the examples table of ``docs/DEPLOY.md`` section 6 lists every folder with its cell and namespace.
+
+There is no ninth example.  Every folder that has the D switch on (03, 04, 06, 07) carries BOTH prefill/decode transports on
+one page: the default EFA (the folder itself) and the NVLink option in the sub-folder ``nvlink/`` (``kustomization.yaml``
+pointing at ``manifests/track-q-qwen38/variants-nvlink/<cell>``, ``rendered.yaml``, ``diff-vs-efa.diff``); the pins of that
+sub-folder are in ``test_421_example_pd_nvlink.py``.
 
 Contract pinned for ``scripts/render-examples.sh`` (mirrors ``scripts/render-track-q.sh``): ``render-examples.sh [OUT_ROOT]``
-writes ``OUT_ROOT/<dir>/rendered.yaml`` and ``OUT_ROOT/<dir>/diff-vs-baseline.diff`` for the eight folders (default OUT_ROOT:
-``examples``), rendering from the repo's ``examples/<dir>`` kustomizations.  The diff format is ``diff -u`` with ordinary
+writes ``OUT_ROOT/<dir>/rendered.yaml`` and ``OUT_ROOT/<dir>/diff-vs-baseline.diff`` for the eight folders, plus
+``OUT_ROOT/<dir>/nvlink/rendered.yaml`` and ``OUT_ROOT/<dir>/nvlink/diff-vs-efa.diff`` for the four PD folders (default OUT_ROOT:
+``examples``), rendering from the repo's ``examples/<dir>`` (and ``examples/<dir>/nvlink``) kustomizations.  The diff format is ``diff -u`` with ordinary
 unified hunks; besides byte-equality with the script, the test checks that ``patch`` applied to the baseline reproduces the
 variant, so the file is a real, format-correct diff.
 
@@ -76,13 +82,15 @@ NAMESPACES: dict[str, str] = {  # folder -> the one namespace its DGD lands in
     "06-kv-router-pd": "s-dis",
     "07-pd-hicache": "s-dis-hic",
 }
-# 08-pd-nvlink is not one of the eight published cells (no folder in FOLDERS, no render under manifests/track-q-qwen38/rendered):
-# it is the NVLink alternative of cell S3, built on manifests/track-q-qwen38/variants-nvlink/S3.  It is kept out of FOLDERS on
-# purpose, so the cell-per-folder checks stay exactly eight; its own checks are in test_421_example_pd_nvlink.py.
-EXTRA = "08-pd-nvlink"
+# The NVLink option is not a ninth folder: it is the sub-folder ``nvlink/`` of each PD folder (see PD below), built on
+# manifests/track-q-qwen38/variants-nvlink/<cell>; its own checks are in test_421_example_pd_nvlink.py.
+NINTH = "08-pd-" + "nvlink"  # the removed folder, built in two pieces so that no file of the tree carries its name
+NVL_DIR = "nvlink"
+NVL_FILES = ("kustomization.yaml", "rendered.yaml", "diff-vs-efa.diff")
 VARIANTS = [f for f in FOLDERS if f != "00-baseline"]
 BASELINE = "00-baseline"
 FILES = ("kustomization.yaml", "rendered.yaml", "diff-vs-baseline.diff", "README.md")
+README_MAX_LINES = {"default": 30, "pd": 70}  # a PD README carries both transports (Option A - EFA, Option B - NVLink)
 SINGLE_WORKER = ["01-kv-router", "02-hicache", "05-kv-router-hicache"]  # one Worker component: plain ``diff -u`` sections
 PD = ["03-pd-disaggregation", "04-all-three", "06-kv-router-pd", "07-pd-hicache"]  # prefill + decode components
 # Combination folders -> (folder that differs by the Frontend only, folder that differs by the other technique).
@@ -136,10 +144,10 @@ def _diff_body(folder: str) -> str:
 
 
 # ----------------------------------------------------------------------------- layout and cell mapping
-def test_examples_directory_holds_exactly_the_eight_cell_folders_the_nvlink_example_and_a_readme() -> None:
+def test_examples_directory_holds_exactly_the_eight_cell_folders_and_a_readme() -> None:
     assert EX.is_dir(), "examples/ missing"
     names = sorted(p.name for p in EX.iterdir() if p.name != ".DS_Store")
-    assert names == sorted([*FOLDERS, EXTRA, "README.md"])
+    assert names == sorted([*FOLDERS, "README.md"]), "no ninth example: the NVLink option lives in nvlink/ of the PD folders"
 
 
 def test_the_folders_cover_every_track_q_cell_exactly_once() -> None:
@@ -171,6 +179,8 @@ def test_folder_holds_exactly_its_files(folder: str) -> None:
     d = EX / folder
     assert d.is_dir(), f"examples/{folder} missing"
     expected = [f for f in FILES if not (folder == BASELINE and f == "diff-vs-baseline.diff")]
+    if folder in PD:
+        expected.append(NVL_DIR)  # the NVLink option, next to the EFA default
     assert sorted(p.name for p in d.iterdir() if p.name != ".DS_Store") == sorted(expected)
 
 
@@ -503,13 +513,49 @@ def test_render_script_reproduces_every_committed_file(tmp_path: Path) -> None:
     out = tmp_path / "out"
     proc = lib_proc.run([str(SCRIPT), str(out)], capture_output=True, text=True, timeout=300, cwd=tmp_path, check=False)
     assert proc.returncode == 0, proc.stdout + proc.stderr
-    assert sorted(p.name for p in out.iterdir()) == sorted([*FOLDERS, EXTRA])
-    for folder in [*FOLDERS, EXTRA]:
+    assert sorted(p.name for p in out.iterdir()) == sorted(FOLDERS), "exactly the eight folders and no ninth one"
+    for folder in FOLDERS:
         produced = sorted(p.name for p in (out / folder).iterdir())
         expected = ["rendered.yaml"] if folder == BASELINE else ["diff-vs-baseline.diff", "rendered.yaml"]
+        if folder in PD:
+            expected = sorted([*expected, NVL_DIR])
         assert produced == expected, folder
         for name in expected:
-            assert (out / folder / name).read_bytes() == (EX / folder / name).read_bytes(), f"{folder}/{name} drifted"
+            if name == NVL_DIR:
+                assert sorted(p.name for p in (out / folder / NVL_DIR).iterdir()) == ["diff-vs-efa.diff", "rendered.yaml"], folder
+                for nvl in ("rendered.yaml", "diff-vs-efa.diff"):
+                    assert (out / folder / NVL_DIR / nvl).read_bytes() == (EX / folder / NVL_DIR / nvl).read_bytes(), f"{folder}/{NVL_DIR}/{nvl} drifted"
+            else:
+                assert (out / folder / name).read_bytes() == (EX / folder / name).read_bytes(), f"{folder}/{name} drifted"
+
+
+def test_render_script_is_deterministic_across_runs_and_out_roots(tmp_path: Path) -> None:
+    outs = []
+    for name in ("one", "two"):
+        out = tmp_path / name
+        proc = lib_proc.run([str(SCRIPT), str(out)], capture_output=True, text=True, timeout=300, cwd=tmp_path, check=False)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        outs.append({p.relative_to(out).as_posix(): p.read_bytes() for p in sorted(out.rglob("*")) if p.is_file()})
+    assert outs[0] == outs[1], "two runs differ (a timestamp or an unordered listing leaked into the output)"
+    assert sum(1 for k in outs[0] if k.endswith(f"{NVL_DIR}/diff-vs-efa.diff")) == len(PD) == 4
+    assert sum(1 for k in outs[0] if k.endswith(f"{NVL_DIR}/rendered.yaml")) == 4
+    assert not any("08" in k.split("/")[0] for k in outs[0])
+
+
+def test_render_script_writes_nothing_when_one_nvlink_folder_fails_to_render(tmp_path: Path) -> None:
+    """OUT_ROOT is written only after everything rendered: break one nvlink/ kustomization in a scratch copy of the tree."""
+    scratch = tmp_path / "repo"
+    (scratch / "scripts").mkdir(parents=True)
+    shutil.copy(SCRIPT, scratch / "scripts" / SCRIPT.name)
+    shutil.copytree(EX, scratch / "examples")
+    shutil.copytree(L.MANIFESTS / Q.TQ, scratch / "manifests" / Q.TQ)
+    broken = scratch / "examples" / PD[-1] / NVL_DIR / "kustomization.yaml"
+    assert broken.is_file(), f"examples/{PD[-1]}/{NVL_DIR}/kustomization.yaml missing"
+    broken.write_text("apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - ./does-not-exist\n")
+    out = tmp_path / "out"
+    proc = lib_proc.run([str(scratch / "scripts" / SCRIPT.name), str(out)], capture_output=True, text=True, timeout=300, cwd=tmp_path, check=False)
+    assert proc.returncode != 0, "a failing nvlink/ render must fail the script"
+    assert not out.exists() or not any(out.rglob("*")), "OUT_ROOT must stay empty when any render failed"
 
 
 def test_render_script_header_documents_the_diff_layout_of_every_variant() -> None:
@@ -518,7 +564,9 @@ def test_render_script_header_documents_the_diff_layout_of_every_variant() -> No
     several = re.search(r"Several worker components \(([^:)]*)[:)]", header)
     assert single and several, "the header must list the one-worker and several-worker folders"
     assert sorted(re.findall(r"\d\d-[a-z-]+", single.group(1))) == sorted(SINGLE_WORKER)
-    assert sorted(re.findall(r"\d\d-[a-z-]+", several.group(1))) == sorted([*PD, EXTRA])
+    assert sorted(re.findall(r"\d\d-[a-z-]+", several.group(1))) == sorted(PD)
+    assert "08" not in header and "pd-nvlink" not in header.replace("components/pd-nvlink", ""), "the header no longer lists a ninth folder"
+    assert "nvlink/" in header and "diff-vs-efa.diff" in header, "the header documents the nvlink/ sub-folder outputs"
 
 
 def test_render_script_default_target_is_examples_and_it_does_not_touch_manifests() -> None:
@@ -678,7 +726,8 @@ ENV_RE = re.compile(r"\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b")
 @pytest.mark.parametrize("folder", FOLDERS)
 def test_readme_length_language_and_sections(folder: str) -> None:
     text = _text(folder, "README.md")
-    assert 5 <= len(text.splitlines()) <= 30, f"{len(text.splitlines())} lines"
+    limit = README_MAX_LINES["pd" if folder in PD else "default"]
+    assert 5 <= len(text.splitlines()) <= limit, f"{len(text.splitlines())} lines (limit {limit})"
     heads = [ln for ln in text.splitlines() if ln.startswith("#")]
     assert heads and heads[0].startswith("# ")
     for section in README_REQUIRED:
@@ -723,11 +772,14 @@ def test_readme_has_no_measured_results(folder: str) -> None:
 def test_every_flag_named_in_the_readme_appears_in_the_diff(folder: str) -> None:
     text = _text(folder, "README.md")
     body = _diff_body(folder)
+    if folder in PD:  # the PD README also names what the NVLink option flips: that is in nvlink/diff-vs-efa.diff
+        body += _text(f"{folder}/{NVL_DIR}", "diff-vs-efa.diff")
+    text = re.sub(r"(?m)^.*\bkubectl\b.*$|`[^`\n]*\bkubectl\b[^`\n]*`", "", text)  # kubectl command lines carry CLI flags (--tail), not engine flags
     named = set(FLAG_RE.findall(text)) | {e for e in ENV_RE.findall(text) if "_" in e}
     named -= {"README_MD"}
     assert named, "a technique README must name the exact flags/fields it changes"
     missing = sorted(n for n in named if n not in body)
-    assert not missing, f"named in README but absent from diff-vs-baseline.diff: {missing}"
+    assert not missing, f"named in README but absent from diff-vs-baseline.diff (or nvlink/diff-vs-efa.diff): {missing}"
 
 
 EXPECTED_KNOBS = {
@@ -767,18 +819,41 @@ def test_examples_readme_table_maps_folder_to_cell_and_switches() -> None:
     assert len(text.splitlines()) <= 60 and text.isascii()
     assert "manifests/track-q-qwen38" in text and re.search(r"source of truth", text, re.I)
     rows = [ln for ln in text.splitlines() if ln.lstrip().startswith("|")]
-    header = rows[0]
+    head = [c.strip() for c in rows[0].strip().strip("|").split("|")]
     for col in ("folder", "cell"):
-        assert col in header.lower()
+        assert col in [h.lower() for h in head], f"column {col!r} missing: {head}"
     for sw in ("R", "O", "D"):
-        assert re.search(rf"\|\s*{sw}\s*\|", header + "|") or re.search(rf"\b{sw}\b", header)
+        assert sw in head, f"column {sw} missing: {head}"
+    assert "PD transport" in head, f"the table needs a 'PD transport' column: {head}"
     for folder, cell in FOLDERS.items():
-        row = next((r for r in rows if folder in r), None)
+        row = next((r for r in rows if f"`{folder}`" in r), None)
         assert row is not None, f"no table row for {folder}"
         cols = [c.strip().strip("`") for c in row.strip().strip("|").split("|")]
+        assert len(cols) == len(head), f"{folder}: {len(cols)} cells for {len(head)} columns"
+        by = dict(zip(head, cols))
         assert cell in cols, f"{folder} row must name {cell}: {cols}"
-        assert tuple(c.lower() for c in cols[-3:]) == SWITCHES[folder], f"{folder} R/O/D switches wrong: {cols[-3:]}"
+        assert tuple(by[sw].lower() for sw in ("R", "O", "D")) == SWITCHES[folder], f"{folder} R/O/D switches wrong: {cols}"
+        transport = by["PD transport"]
+        if folder in PD:
+            assert re.search(r"\bEFA\b", transport) and re.search(r"\bNVLink\b", transport) and f"{NVL_DIR}/" in transport, (
+                f"{folder}: the PD transport cell says EFA (default) and NVLink via nvlink/: {transport!r}")
+            assert re.search(r"(?i)default", transport), f"{folder}: EFA is marked as the default: {transport!r}"
+        else:
+            assert transport == "-", f"{folder}: no D switch, so the PD transport cell is '-': {transport!r}"
     assert len([r for r in rows if re.search(r"\|\s*S\d\s*\|", r)]) == len(FOLDERS) == 8
+
+
+def test_examples_readme_has_no_ninth_example_and_points_to_the_efa_or_nvlink_guidance() -> None:
+    text = (EX / "README.md").read_text()
+    assert "08" not in re.findall(r"\d+", text) and NINTH not in text, "no 08 anywhere in examples/README.md"
+    assert not re.search(r"(?i)\b(nine|9) (examples|folders|cells)\b", text)
+    assert re.search(r"(?m)^#{1,4} .*EFA or NVLink\?", text), "a short 'EFA or NVLink?' section"
+    flat = re.sub(r"\s+", " ", text)
+    assert re.search(r"(?i)choosing-the-pd-transport|pd-disaggregation/README\.md", flat), "it points to the docs (README 'Choosing the PD transport' or the PD guide)"
+    assert re.search(rf"kubectl apply -k examples/<folder>/{NVL_DIR}|examples/<folder>/{NVL_DIR}", flat), "the NVLink command pattern"
+    assert re.search(r"(?i)\bdelete\b", flat), "delete one before you apply the other"
+    for folder in PD:
+        assert f"`{folder}`" in text
 
 
 # ----------------------------------------------------------------------------- docs/DEPLOY.md, section 6 (the examples table)
@@ -807,7 +882,7 @@ def test_deploy_examples_table_lists_every_folder_with_its_cell_and_namespace() 
 ACCOUNT_RE = re.compile(r"(?<![0-9A-Za-z.])[0-9]{12}(?![0-9])")
 REGION_RE = re.compile(r"\b(?:us|eu|ap|sa|ca|me|af)-(?:north|south|east|west|central|northeast|southeast)-\d\b")
 BUCKET_RE = re.compile(r"(?:kubecon" + r"-dynamo|dynamo-sample)-(?:models|results)-")
-EXEMPT = {"rendered.yaml", "diff-vs-baseline.diff"}  # the same files-by-design that embed the placeholder image in track-q rendered/
+EXEMPT = {"rendered.yaml", "diff-vs-baseline.diff", "diff-vs-efa.diff"}  # the same files-by-design that embed the placeholder image in track-q rendered/
 
 
 def _example_files() -> list[Path]:

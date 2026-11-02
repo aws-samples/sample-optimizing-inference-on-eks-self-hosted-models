@@ -167,10 +167,12 @@ Only one cell fits on the GPU node: run `kubectl delete -k examples/<folder>` be
 running cell, `scripts/50-toggle-router.sh kv s-agg` flips R without restarting the workers. Each folder's README
 says what the technique changes.
 
-The PD cells use EFA (NIXL LIBFABRIC), the default and the transport of the matrix driver. `examples/08-pd-nvlink` is
-the NVLink alternative of S3, a design reference that was not run on p6-b200: it needs `privileged` + `hostPID` pods
-and prefill and decode on the same node, and it is not one of the eight cells. Delete `examples/03-pd-disaggregation`
-before you apply it. The choice, with the NVLink variants of S5, S6 and S7, is explained in the
+The PD cells use EFA (NIXL LIBFABRIC), the default and the transport of the matrix driver. Each of the four PD
+folders (03, 04, 06, 07) also carries the NVLink option in its `nvlink/` sub-folder, a design reference that was not
+run on p6-b200: `kubectl --context "$KUBE_CONTEXT" apply --server-side -k examples/<folder>/nvlink`, for example
+`examples/03-pd-disaggregation/nvlink`. It needs `privileged` + `hostPID` pods and prefill and decode on the same node. No Terraform change is needed: the scenario namespaces (`s-*`) are already created with the Pod Security `privileged` profile, because the EFA pods are `privileged` too.
+Both options deploy the same namespace and DGD `q38`: delete the one you applied before you apply the other. When to
+use EFA and when to use NVLink: [Choosing the PD transport](../README.md#choosing-the-pd-transport) and the
 [PD guide](optimizations/pd-disaggregation/README.md#311-nvlink-on-one-node-design-reference-not-run-on-p6-b200).
 
 ## 7. Run the matrix (`tools/matrix_driver`)

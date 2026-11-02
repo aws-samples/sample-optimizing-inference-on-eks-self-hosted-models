@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: MIT-0
 """Digests of what was published and must not move when the NVLink alternative is added.
 
-The NVLink alternative (``components/pd-nvlink``, ``variants-nvlink/``, ``rendered-nvlink/``, ``examples/08-pd-nvlink``) is
-added NEXT TO the published Track Q material.  The published cells, their renders and goldens, the example folders 00 to 07,
-the matrix driver and the plans are the evidence behind the published numbers, so they stay byte-identical.  Each entry is a
+The NVLink alternative (``components/pd-nvlink``, ``variants-nvlink/``, ``rendered-nvlink/`` and the ``nvlink/`` sub-folder of the four prefill/decode
+example folders 03, 04, 06 and 07) is added NEXT TO the published Track Q material.  The published cells, their renders and goldens, the top-level files of the example folders 00 to 07
+(the ``nvlink/`` sub-folders and the READMEs may be added), the matrix driver and the plans are the evidence behind the published numbers, so they stay byte-identical.  Each entry is a
 digest of a directory: sha256 over the sorted ``relative path NUL sha256(content)`` lines of its files (bytecode caches and
 ``.DS_Store`` left out).  An added, removed or edited file moves the digest.
 """
@@ -57,7 +57,7 @@ FROZEN_FILES: dict[str, str] = {  # single files (sha256 of the bytes)
 }
 
 
-def tree_digest(rel: str, names: tuple[str, ...] | None = None, root: Path = L.REPO_ROOT) -> str:
+def tree_digest(rel: str, names: tuple[str, ...] | None = None, root: Path = L.REPO_ROOT, top_level_only: bool = False) -> str:
     """Return the digest of the directory ``rel`` (see the module docstring).
 
     The files are those git tracks plus the ones it does not ignore (an added file that is not committed yet counts, a
@@ -67,6 +67,7 @@ def tree_digest(rel: str, names: tuple[str, ...] | None = None, root: Path = L.R
         rel: Directory, relative to the repository root.
         names: When given, only the files of this name count.
         root: The repository root.
+        top_level_only: When true, only the files directly in ``rel`` count (sub-folders such as ``nvlink/`` are left out).
 
     Returns:
         The hex sha256; the digest of an empty or missing directory is that of no lines.
@@ -80,6 +81,8 @@ def tree_digest(rel: str, names: tuple[str, ...] | None = None, root: Path = L.R
     for path in sorted(p for p in listing.split("\0") if p):
         sub = Path(path).relative_to(base)
         name = sub.name
+        if top_level_only and len(sub.parts) > 1:
+            continue
         if not (root / path).is_file() or SKIP & set(sub.parts) or name.endswith(".pyc") or (names is not None and name not in names):
             continue
         digest.update(f"{sub.as_posix()}\0{hashlib.sha256((root / path).read_bytes()).hexdigest()}\n".encode())
