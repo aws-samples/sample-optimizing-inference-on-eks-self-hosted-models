@@ -18,8 +18,8 @@ Citation convention: `v1.5.1 <path>` means the NVIDIA Dynamo tag v1.5.1 (`209366
 | Cells | S3 (rr, O off), S5 (kv, O off), S6 (rr, O on), S7 (kv, O on) |
 | Topologies | `t-dis` (namespace `s-dis`), `t-dis-hic` (namespace `s-dis-hic`) under `manifests/track-q-qwen38/topologies` |
 | Shape | 4 prefill pods + 4 decode pods, TP1, one GPU and one EFA interface each, on one `p6-b200.48xlarge` |
-| Transport | NIXL `LIBFABRIC` over EFA, prefill and decode in separate pods |
-| Examples | [`examples/03-pd-disaggregation`](../../../examples/03-pd-disaggregation/) (S3) and [`examples/04-all-three`](../../../examples/04-all-three/) (S7). Paired with the other techniques in [`examples/06-kv-router-pd`](../../../examples/06-kv-router-pd/) (S5, R+D) and [`examples/07-pd-hicache`](../../../examples/07-pd-hicache/) (S6, O+D) |
+| Transport | NIXL `LIBFABRIC` over EFA, prefill and decode in separate pods. This is the default and the transport of every published run. An NVLink alternative for prefill and decode pods on the same node is a design reference, not run on p6-b200 ([3.1.1](#311-nvlink-on-one-node-design-reference-not-run-on-p6-b200)) |
+| Examples | [`examples/03-pd-disaggregation`](../../../examples/03-pd-disaggregation/) (S3) and [`examples/04-all-three`](../../../examples/04-all-three/) (S7). Paired with the other techniques in [`examples/06-kv-router-pd`](../../../examples/06-kv-router-pd/) (S5, R+D) and [`examples/07-pd-hicache`](../../../examples/07-pd-hicache/) (S6, O+D). The NVLink alternative of S3 is [`examples/08-pd-nvlink`](../../../examples/08-pd-nvlink/) |
 | Claim under test | PD trades TTFT for a steadier ITL. It is **not** expected to give more throughput (a design assumption) |
 
 ---
@@ -53,7 +53,7 @@ sequenceDiagram
   and decode reserves KV slots
     D->>P: bootstrap handshake: reserved KV slot indices
   end
-  P->>D: 4. KV pages over NIXL LIBFABRIC (EFA)
+  P->>D: 4. KV pages over NIXL LIBFABRIC (EFA)<br/>(same node, alternative: UCX cuda_ipc over NVLink, see 3.1.1)
   loop one token per step
     D-->>F: token
     F-->>C: stream
@@ -66,14 +66,14 @@ The flow is **prefill-first**:
 - **Bootstrap.** The SGLang prefill handler returns `bootstrap_info` `{bootstrap_host, bootstrap_port, bootstrap_room}` (v1.5.1 `components/src/dynamo/sglang/request_handlers/llm/prefill_handler.py:74-210`); the decode handler refuses to run without it (`decode_handler.py:517-551`). The port is `--disaggregation-bootstrap-port 12345` on both roles (`manifests/track-q-qwen38/components/pd-efa/patch.yaml`).
 - **KV transfer.** NIXL moves KV from prefill VRAM to decode VRAM without blocking forward passes (v1.5.1 `concepts/system-architecture/disaggregated-serving.md:16-18`). Track Q selects the LIBFABRIC backend (`SGLANG_DISAGGREGATION_NIXL_BACKEND=LIBFABRIC`).
 - **Decode routing.** In PD mode, decode routing turns off overlap scoring, the KV-reuse assumption and prefill-token tracking (v1.5.1 `router/disaggregated-serving.md:25-28`). R therefore chooses among the 4 prefill workers (see the [KV router doc](../kv-router/README.md)).
-- **No silent fallback.** Once a request is dispatched to prefill, a prefill failure is returned to the client; it is never retried as aggregated (`:23`). The Frontend flag `--decode-fallback` stays at its default, `false` (v1.5.1 `reference/components/frontend-configuration.mdx:97-100`).
+- **No request-level fallback.** Once a request is dispatched to prefill, a prefill failure is returned to the client; it is never retried as aggregated (`:23`). The Frontend flag `--decode-fallback` stays at its default, `false` (v1.5.1 `reference/components/frontend-configuration.mdx:97-100`).
 - **HiCache** runs on the prefill only (S6, S7); the decode workers never run it.
 
 ## 3. On one p6-b200 node
 
 ### 3.1 Transport: NIXL LIBFABRIC over EFA, cross-pod
 
-On one node, the cross-pod prefill-to-decode path was the open question: NVIDIA's measured multi-pod B200 disaggregated recipes move KV over InfiniBand, which p6-b200 does not have. An earlier transport gate (Qwen3-32B-FP8, 1 prefill + 1 decode, TP1) tried five variants, and only **NIXL LIBFABRIC over EFA** passed as a cross-pod transport (20/20 requests, LIBFABRIC instantiated, 0 failed transfers, about 48 GB/s lower bound). UCX on default pods, UCX with `hostIPC` and Mooncake over NVLink failed; both roles in one pod over UCX worked but showed no `cuda_ipc` evidence. The runs of record use LIBFABRIC for every PD cell.
+On one node, the cross-pod prefill-to-decode path was the open question: NVIDIA's measured multi-pod B200 disaggregated recipes move KV over InfiniBand, which p6-b200 does not have. An earlier transport gate (Qwen3-32B-FP8, 1 prefill + 1 decode, TP1) tried five variants, and only **NIXL LIBFABRIC over EFA** passed as a cross-pod transport (20/20 requests, LIBFABRIC instantiated, 0 failed transfers, about 48 GB/s lower bound). UCX on default pods, UCX with `hostIPC` and Mooncake over NVLink failed; both roles in one pod over UCX worked but showed no `cuda_ipc` evidence. The runs of record use LIBFABRIC for every PD cell. That gate did not include the NVLink recipe of [3.1.1](#311-nvlink-on-one-node-design-reference-not-run-on-p6-b200) (NIXL UCX with `cuda_ipc`, `components/pd-nvlink`), so its Mooncake result says nothing about it, and that recipe was not run on p6-b200.
 
 What the runs of record measured on Track Q:
 
@@ -81,6 +81,41 @@ What the runs of record measured on Track Q:
 - **W2 factorial (n=3):** 11,040 KV transfers over the 12 PD runs, 0 failed, LIBFABRIC instantiated on every PD pod, eth0 ≤ 0.065% of the KV bytes.
 
 The matrix driver refuses a PD run unless every engine's boot log shows `Backend LIBFABRIC was instantiated` (or `KVManager initialized with backend: LIBFABRIC`). Track Q does not enable NIXL telemetry; the transfer evidence of record is SGLang's own `sglang:kv_transfer_*` and `sglang:num_transfer_failed_reqs_total` per engine plus the eth0 delta (the EFA byte counters were not readable on that node).
+
+### 3.1.1 NVLink on one node: design reference (not run on p6-b200)
+
+This section describes a second KV path for prefill and decode pods that share one node. It is a **design reference**: the repository ships it, but the recipe was not run on p6-b200. EFA stays the default. The published runs of record used EFA (NIXL LIBFABRIC) for every PD cell. None of the published runs used NVLink, and no figure of sections 5 and 6 comes from it.
+
+```mermaid
+flowchart LR
+  subgraph efa["Default: NIXL LIBFABRIC over EFA"]
+    p1["prefill pod"] -->|"KV over EFA"| d1["decode pod"]
+  end
+  subgraph nvl["Design reference, same node only: NIXL UCX cuda_ipc over NVLink"]
+    p2["prefill pod<br/>privileged + hostPID"] -->|"KV over NVLink"| d2["decode pod<br/>privileged + hostPID"]
+  end
+```
+
+- **What it changes.** `components/pd-nvlink` is applied after `components/pd-efa`, on the prefill and decode pods. It switches `SGLANG_DISAGGREGATION_NIXL_BACKEND` from `LIBFABRIC` to `UCX`, sets `UCX_TLS=cuda_ipc,cuda_copy,tcp`, `UCX_PROTO_INFO=y` and `UCX_LOG_LEVEL=info`, and adds `hostPID: true`. Everything else of `pd-efa` stays: the `FI_*` variables, the EFA interface request, `privileged: true` and the GPU-pin wrapper. The pods keep their EFA interface because EFA stays the transport for traffic between nodes.
+- **Which cells.** S3, S5, S6 and S7 have an NVLink variant: the overlays are in `manifests/track-q-qwen38/variants-nvlink/` (the published cell plus `pd-nvlink`) and their committed renders in `manifests/track-q-qwen38/rendered-nvlink/`. The published renders in `manifests/track-q-qwen38/rendered/` and the cells S0 to S7 are unchanged.
+- **How to choose.** EFA is the default: apply `examples/03-pd-disaggregation` or `manifests/track-q-qwen38/rendered/S5.yaml`. For NVLink, apply `examples/08-pd-nvlink` or `manifests/track-q-qwen38/rendered-nvlink/S5.yaml` (commands in [section 4](#4-run-it)). Both trees deploy the same namespace and the DGD `q38`, so delete the one you applied before you apply the other. The matrix driver refuses a PD run without the LIBFABRIC boot line, so it cannot run the NVLink cells: apply them by hand.
+
+**What was measured, and where.** Both measurements ran on another instance type than the rest of this guide, one `p5e.48xlarge` (8x H200), with the public SGLang 0.5.21 image of this sample, not on p6-b200. They are unpublished internal measurements that cannot be reproduced from this repository.
+
+- **EFA against NVLink: parity.** An adaptation of cell S5 for H200 (`Qwen/Qwen3.8-27B-FP8` at TP1, 4P4D on one node) replayed the W3-16K workload adapted to that instance at 6 req/s, with n=3 runs per arm, once over EFA and once over NVLink. It is a single series, not a result of record. Continuation TTFT p50 was 0.1386 s over EFA and 0.1395 s over NVLink (ratio 1.0066, 95% interval of the log ratio about -2.4% to +2.8%), and the mean KV transfer latency was 153.8 ms over EFA and 150.8 ms over NVLink (unpublished internal measurement). The two transports are at parity, and the rule fixed before the runs left the result INCONCLUSIVE. This guide does not claim that NVLink is faster than EFA.
+- **NVLink recipe against the silent TCP fallback (1P1D).** One prefill and one decode pod on one node, 10 sequential requests per prompt size, one run per arm. With a default pod spec, UCX did not use `cuda_ipc`: the KV bytes left the pod over TCP, the NVLink counters did not move, nothing logged an error, and TTFT grew with the prompt length. With `Qwen/Qwen3.8-27B-FP8`, TTFT p50 at a 32,000-token prompt (the 32K point of the sweep) was 9.9 s with the default pod spec and 2.0 s with the recipe (unpublished internal measurement). With `Qwen/Qwen3-0.6B` it was 14 s against 0.33 s (unpublished internal measurement). With the recipe the NVLink counters grew by about the KV bytes moved.
+
+**How to read these numbers.** The large measured effect is avoiding the silent TCP fallback of a default pod, not NVLink against EFA: the comparison arm of the 1P1D runs is a default pod spec, not EFA. The cells of this sample never run a default pod spec for the KV path, because the EFA cells select LIBFABRIC and the NVLink cells carry the recipe. The p5e figures are not comparable with the B200 figures of sections 5 and 6 (another GPU, trace and rate).
+
+**Limits.**
+
+- **Same node only.** `cuda_ipc` does not cross nodes, so the NVLink path works only when the prefill and decode pods run on the same node. Between nodes EFA stays the path.
+- **Not run on p6-b200.** Nothing was deployed from the NVLink variants on p6-b200. The repository tests render them offline and compare them with the published cells, which shows what they change, not that they work there.
+- **Not a tuning claim.** The recipe was only ever run as a whole, so which of its settings is individually necessary is not known.
+
+**Security.** The recipe needs `privileged: true` and `hostPID: true` on the prefill and decode pods, so it needs a namespace that enforces the Pod Security `privileged` level. With `hostPID` a pod shares the process namespace of the node: the processes of other pods on that node are visible to it and can be signalled. The `baseline` level does not admit `hostPID`. The PD namespaces of this sample (`s-dis`, `s-dis-hic`, see `terraform/cluster/namespaces.tf`) already enforce `privileged`, because LIBFABRIC on EFA needs privileged pods, so their level does not change; what the recipe adds is `hostPID`. Do not use it in a `baseline` namespace (`bench`, `dynamo-system`), use a dedicated node, and keep the GPU-pin wrapper. This sample is a demonstration, not a hardened deployment.
+
+**Verify the transport before you trust a TTFT.** Correct answers do not show which path carried the KV. Use the checks in the table of [section 8](#8-how-to-measure-and-pitfalls) and the entry [KV transfer silently on TCP](../../TROUBLESHOOTING.md#kv-transfer-silently-on-tcp-how-to-detect-and-what-changes-it).
 
 ### 3.2 Repo pieces
 
@@ -90,8 +125,12 @@ flowchart LR
   dis["dis<br/>Worker → 4 prefill + copy → 4 decode"]
   hic["components/hicache-prefill<br/>(S6, S7 only)"]
   efa["components/pd-efa<br/>role flags + LIBFABRIC/EFA"]
+  nvl["components/pd-nvlink<br/>UCX cuda_ipc over NVLink + hostPID<br/>(design reference, applied after pd-efa)"]
   base --> dis --> efa --> tdis["topologies/t-dis (s-dis)"]
   dis --> hic --> efa2["components/pd-efa"] --> tdishic["topologies/t-dis-hic (s-dis-hic)"]
+  tdis -.->|"cells S3, S5 + pd-nvlink"| nvl
+  tdishic -.->|"cells S6, S7 + pd-nvlink"| nvl
+  nvl --> var["variants-nvlink/ → rendered-nvlink/"]
 ```
 
 | Path | What it does |
@@ -99,8 +138,10 @@ flowchart LR
 | `manifests/track-q-qwen38/dis/pd-roles.yaml` | Copies the agg `Worker` into `prefill` (4 replicas) and `decode` (4 replicas), 1 GPU each. Both keep the Worker's engine core, env, probes and placement. Decode memory 64Gi / 64Gi. |
 | `manifests/track-q-qwen38/components/pd-efa/patch.yaml` | On both roles: `--disaggregation-mode prefill\|decode`, `--disaggregation-transfer-backend nixl`, `--disaggregation-bootstrap-port 12345`; `SGLANG_DISAGGREGATION_NIXL_BACKEND=LIBFABRIC`, `FI_PROVIDER=efa`, `FI_EFA_USE_DEVICE_RDMA=1`, `FI_EFA_ENABLE_SHM_TRANSFER=0`, `FI_EFA_ENABLE_SHM=0`, an explicit `LD_LIBRARY_PATH` (EFA libraries first; Kubernetes does not expand `${...}`); `vpc.amazonaws.com/efa: 1` request = limit; `privileged: true`; a GPU-pin wrapper. |
 | GPU-pin wrapper (same file) | A privileged container sees every GPU of the node, so CUDA would pick GPU 0, another pod's. The wrapper pins `CUDA_VISIBLE_DEVICES` to the GPU the device plugin allocated (`EXPECTED_GPUS=1`) and exits if it cannot. |
+| `manifests/track-q-qwen38/components/pd-nvlink` | The NVLink alternative, applied after `pd-efa` (3.1.1): `SGLANG_DISAGGREGATION_NIXL_BACKEND=UCX`, `UCX_TLS=cuda_ipc,cuda_copy,tcp`, `UCX_PROTO_INFO=y`, `UCX_LOG_LEVEL=info` and `hostPID: true` on both roles. Design reference, not run on p6-b200. |
 | `manifests/track-q-qwen38/components/hicache-prefill` | S6/S7: L2 400 GB + L3 on each prefill engine (4 × 400 GB = the 1.6 TB of the agg O cells). |
-| `manifests/track-q-qwen38/cells/S3`, `S5`, `S6`, `S7` | Topology + router mode; committed renders in `manifests/track-q-qwen38/rendered/`. |
+| `manifests/track-q-qwen38/cells/S3`, `S5`, `S6`, `S7` | Topology + router mode; committed renders in `manifests/track-q-qwen38/rendered/` (EFA). |
+| `manifests/track-q-qwen38/variants-nvlink/S3`, `S5`, `S6`, `S7` | The same cells plus `pd-nvlink`; committed renders in `manifests/track-q-qwen38/rendered-nvlink/`, written by `scripts/render-track-q-nvlink.sh`. |
 
 ### 3.3 Pod placement and memory
 
@@ -119,13 +160,22 @@ Prerequisites: the cluster and the Track Q config (`manifests/config/platform.en
 # Offline: what D changes against the baseline
 less examples/03-pd-disaggregation/diff-vs-baseline.diff
 
-# Deploy one cell (S3 = PD without HiCache, round-robin; S7 = all three)
+# Deploy one cell over EFA, the default (S3 = PD without HiCache, round-robin; S7 = all three)
 kubectl --context "$KUBE_CONTEXT" apply --server-side -k examples/03-pd-disaggregation
 
 # Transport check: every engine must have instantiated LIBFABRIC
 kubectl --context "$KUBE_CONTEXT" -n s-dis logs -l nvidia.com/dynamo-component-type=prefill -c main --tail=-1 \
   | grep -E "Backend LIBFABRIC was instantiated|KVManager initialized with backend: LIBFABRIC"
+
+# The same cell over NVLink (design reference, one node): delete the EFA one first, because both use namespace s-dis and the DGD q38
+kubectl --context "$KUBE_CONTEXT" delete -k examples/03-pd-disaggregation
+kubectl --context "$KUBE_CONTEXT" apply --server-side -k examples/08-pd-nvlink
+
+# Transport check for NVLink: the UCX protocol table must list cuda_ipc (the engines log it because UCX_PROTO_INFO=y)
+kubectl --context "$KUBE_CONTEXT" -n s-dis logs -l nvidia.com/dynamo-component-type=prefill -c main --tail=-1 | grep cuda_ipc
 ```
+
+- **Choosing the transport.** `examples/03-pd-disaggregation` (EFA) and `examples/08-pd-nvlink` (NVLink) are the two examples of S3; S5, S6 and S7 have the same pair as the committed renders `manifests/track-q-qwen38/rendered/S<n>.yaml` (EFA, default) and `manifests/track-q-qwen38/rendered-nvlink/S<n>.yaml` (NVLink, design reference). EFA remains the default and the only transport the recorded runs and the matrix driver use. The NVLink check adapts to your deployment (namespace and labels) and is not part of the tested cells.
 
 - **Recorded runs.** The matrix driver (`tools/matrix_driver`, plans in `plans/w3-16k/`) deploys a cell, waits for the 4 + 4 workers, resets and verifies the caches, replays the frozen trace and records `kv_transfer_*`, eth0 and the per-request prefill/decode worker ids. Its preflight expects exactly 4 prefill and 4 decode pods.
 
@@ -149,7 +199,7 @@ kubectl --context "$KUBE_CONTEXT" -n s-dis logs -l nvidia.com/dynamo-component-t
 - **At 32 req/s** every finished cell saturates, S7 included. S7 is the only cell with some goodput left (12.2% of turns, TTFT p50 3.47 s over the window, ITL 14.5 ms), but its per-minute continuation TTFT p50 rises from 1.1 s to 20.9 s across the window (`docs/results/w3-16k-per-minute.csv`) and its decode KV peaks at 0.96 of capacity; S6 is saturated (TTFT p50 52.8 s) with the ITL still at 11.9 ms. **At 10 req/s** every cell meets the SLO; S3 is the lowest at 97.0%.
 - **Failures, stated:** S5 at 25 req/s failed the pre-load reset check (T-RTR-2, `repeat_cached_zero`: the engines counted 2,048 cached tokens on the post-flush repeat while the clients reported 0), so no load ran and S5 has no 25 req/s row. At r32 the S3 and S5 decode workers crashed after the replay started (the decode pods restarted with last-terminated reason Error, not OOMKilled, per the Prometheus history), and the cause is undetermined; at r25 S3 ran clean with its decode KV at 0.96, and at r32 S6 and S7 also reached 0.96 without restarts, so a full decode KV alone does not explain the crash (INFERRED). Both failures hit PD without HiCache. Details: [docs/results](../../results/README.md).
 
-**Source of the figures.** The data shipped with this sample is W3-16K only: [`docs/results/w3-16k-cells.csv`](../../results/w3-16k-cells.csv) and [`docs/results/w3-16k-per-minute.csv`](../../results/w3-16k-per-minute.csv), one run per cell and rate (n=1), method in [`workloads/w3-16k/METHODOLOGY.md`](../../../workloads/w3-16k/METHODOLOGY.md). The W2 figures of this guide (n=3 per cell: the runs of the plans `plan-e4` to `plan-e6` in [`plans/w2-long-context`](../../../plans/w2-long-context/), with the SLO calibrated by `plan-e3`) and its E1 figures (n=1) were measured with the derived SGLang 0.5.22 build ([Versions](#9-versions)). They, and the earlier gates the guide cites, are not in the shipped data: they come from run exports that are not in this repository, so they cannot be re-derived from it.
+**Source of the figures.** The data shipped with this sample is W3-16K only: [`docs/results/w3-16k-cells.csv`](../../results/w3-16k-cells.csv) and [`docs/results/w3-16k-per-minute.csv`](../../results/w3-16k-per-minute.csv), one run per cell and rate (n=1), method in [`workloads/w3-16k/METHODOLOGY.md`](../../../workloads/w3-16k/METHODOLOGY.md). The W2 figures of this guide (n=3 per cell: the runs of the plans `plan-e4` to `plan-e6` in [`plans/w2-long-context`](../../../plans/w2-long-context/), with the SLO calibrated by `plan-e3`) and its E1 figures (n=1) were measured with the derived SGLang 0.5.22 build ([Versions](#9-versions)). They, and the earlier gates the guide cites, are not in the shipped data: they come from run exports that are not in this repository, so they cannot be re-derived from it. The p5e figures of [3.1.1](#311-nvlink-on-one-node-design-reference-not-run-on-p6-b200) are unpublished internal measurements too.
 
 **W2, the pre-registered contrasts (n=3, results of record).** D alone (S3 vs S0): goodput 0.75x (0.195 vs 0.260 turns/s). D on top of R+O (S7 vs S4): 1.29x. H-D (S7 vs S4) failed, as pre-registered (the prediction was a FAIL at 0.5 req/s, because that load is decode-dominated): per-token ITL p95 was 11% slower in S7 than in S4 (10.36 vs 9.28 ms). D showed only in the far tail: S0 had about 1,413 tokens per run with decode stalls above 2.3 s, every PD cell had none, and E2E p95 fell from 99.6 s (S0) to 74.1 s (S7).
 
@@ -165,6 +215,7 @@ kubectl --context "$KUBE_CONTEXT" -n s-dis logs -l nvidia.com/dynamo-component-t
 | **Low load** | No gain: at 10 req/s every cell meets the SLO, and at batch size 1 PD equals agg (E1). |
 | **PD without HiCache, high load** | Fragile here: S5 failed its reset check at 25 req/s and the S3 and S5 decode workers crashed at 32 req/s, cause undetermined. |
 | **Throughput** | Not a goal: the assumption is that PD does not raise the node's ceiling. |
+| **Transport** | EFA is the default and the only transport measured on p6-b200. NVLink on one node is a design reference: it needs `privileged` + `hostPID` and works on the same node only (3.1.1). On p5e the two were at parity (unpublished internal measurement). |
 
 **The P:D split has two limits.** The two roles are loaded by different phases of a session: the **entry prefill** (each session arrives with a cold prompt; W2 entries are ~98K tokens, W3 entries 5.6K plus 3% cold rows of 15.9K) and the **continuation decode** KV (each decode holds the KV of its whole context while it streams). A static 4P4D split sized for one phase is short for the other:
 
@@ -181,9 +232,10 @@ So the right P:D ratio moves with the phase mix of the load, and a static split 
 | Knob | Where | Value in Track Q | Notes |
 |---|---|---|---|
 | Transfer backend | `--disaggregation-transfer-backend` in `components/pd-efa` | `nixl` | Both roles must match |
-| NIXL backend | env `SGLANG_DISAGGREGATION_NIXL_BACKEND` | `LIBFABRIC` | If unset, SGLang uses UCX, which falls back to TCP on EFA (v1.5.1 `efa-on-aws.mdx:151`) |
+| NIXL backend | env `SGLANG_DISAGGREGATION_NIXL_BACKEND` | `LIBFABRIC` | If unset, SGLang uses UCX, which falls back to TCP on EFA (v1.5.1 `efa-on-aws.mdx:151`). `components/pd-nvlink` sets `UCX` on purpose, together with `UCX_TLS` and `hostPID` (3.1.1) |
 | EFA interfaces | `vpc.amazonaws.com/efa` request = limit | 1 per pod | The sum must be ≤ the node's EFA count (8 on p6-b200.48xlarge). The GPU NodeClass must expose EFA interfaces |
 | EFA env (required) | `components/pd-efa/patch.yaml` | `FI_PROVIDER=efa`, `FI_EFA_USE_DEVICE_RDMA=1`, `FI_EFA_ENABLE_SHM_TRANSFER=0`, `FI_EFA_ENABLE_SHM=0`, explicit `LD_LIBRARY_PATH` | Required by v1.5.1 `efa-on-aws.mdx:159-172`. LIBFABRIC also needs `privileged: true` for `fi_mr_reg` (`:188-212`) and an image with the EFA libraries |
+| NVLink recipe (design reference) | `components/pd-nvlink/patch.yaml`, applied after `pd-efa` | `UCX_TLS=cuda_ipc,cuda_copy,tcp`, `UCX_PROTO_INFO=y`, `UCX_LOG_LEVEL=info`, `hostPID: true` | Same node only; needs a Pod Security `privileged` namespace; the EFA settings above stay in place |
 | EFA tuning (not set) | add to `components/pd-efa` | none | v1.5.1 `efa-on-aws.mdx:174-184`: `FI_EFA_FORK_SAFE=0`, `FI_EFA_USE_HUGE_PAGE=1` (plus hugepages), `FI_EFA_MR_MAX_CACHED_COUNT=524288`, `FI_EFA_MR_MAX_CACHED_SIZE=0` |
 
 ### 7.2 Ports
@@ -217,19 +269,21 @@ So the right P:D ratio moves with the phase mix of the load, and a static split 
 | KV transfers | `sglang:kv_transfer_total_mb_sum` / `_count`, `sglang:kv_transfer_speed_gb_s_*`, `sglang:num_transfer_failed_reqs_total` | Non-zero during traffic; failures must stay 0 |
 | Decode KV use | `sglang:kv_used_tokens` / `sglang:max_total_num_tokens` on the decode pods | Near 1.0 means the decode side is the limit |
 | Bytes on eth0 | node `/proc/net/dev` delta | Must stay a tiny share of the KV bytes, or the transport fell back to TCP |
+| UCX path (NVLink variants only) | UCX protocol table in the log of the NIXL initiator pod (the prefill pod for SGLang), with `UCX_PROTO_INFO=y` and `UCX_LOG_LEVEL=info` | The prefill-to-decode endpoint must list `cuda_ipc`. `tcp/eth0` rows appear in a working setup too, so test for the presence of `cuda_ipc`, not the absence of `tcp` |
+| NVLink bytes (NVLink variants only) | NVLink data counters per GPU; the panel "NVLink throughput (DCGM)" of `dashboards/demo/matrix.json` is the dashboard view | Should grow by about the KV bytes moved; flat at zero means the KV went over TCP. The DCGM PROF fields must be exported on your nodes |
 
 Dashboards: `dashboards/demo/matrix.json` with `namespace` set to `s-dis` or `s-dis-hic` (its NIXL panels need NIXL telemetry, which Track Q does not enable); `dashboards/sglang/sglang.json` for the PD queues. Panels illustrate; the run tables are the numbers of record.
 
-- **Silent TCP fallback.** With the wrong NIXL backend on EFA (UCX, or unset), transfers land at about 1-3 GB/s, TTFT goes to about 100 s, and nothing raises an error (v1.5.1 `efa-on-aws.mdx:144,151,157,318`). Always check the LIBFABRIC boot line and the eth0 share.
+- **Silent TCP fallback.** With the wrong NIXL backend on EFA (UCX, or unset), transfers land at about 1-3 GB/s, TTFT goes to about 100 s, and nothing raises an error (v1.5.1 `efa-on-aws.mdx:144,151,157,318`). Always check the LIBFABRIC boot line and the eth0 share. The same silent fallback happens on one node with UCX and a default pod spec, which is the comparison arm of the 1P1D runs in 3.1.1; there the LIBFABRIC line does not apply, so check the UCX protocol table and the eth0 share (see [TROUBLESHOOTING](../../TROUBLESHOOTING.md#kv-transfer-silently-on-tcp-how-to-detect-and-what-changes-it)).
 - **Privileged pods see every GPU.** Without the GPU-pin wrapper two engines can land on the same GPU. Keep the wrapper and `EXPECTED_GPUS` equal to the GPU limit.
 - **Rolling-update deadlock.** Changing a worker's pod template on a full GPU node makes the operator start a new worker while the old one still holds the GPUs. Delete the DGD before applying edited worker settings: `kubectl --context "$KUBE_CONTEXT" -n s-dis delete dynamographdeployments.nvidia.com q38`. The rr/kv toggle is safe, because the worker hash excludes Frontend changes.
-- **Security.** LIBFABRIC on EFA needs `privileged: true`, so the PD namespaces must allow privileged pods.
+- **Security.** LIBFABRIC on EFA needs `privileged: true`, so the PD namespaces must allow privileged pods. The NVLink variants also need `hostPID: true`, which exposes the process tree of the node to the pod and is not admitted by the `baseline` Pod Security level (3.1.1): use them only on a dedicated node, in a namespace that enforces `privileged`.
 
 ---
 
 ## 9. Versions
 
-- **Runtime of the sample.** The public NGC image `nvcr.io/nvidia/ai-dynamo/sglang-runtime:1.6.0-efa@sha256:d574951b0dbd037bdcaabe121431a83cd047a5c106cb243fe6f2f97f2e456cd2` (the `RUNTIME_IMAGE` of `versions.env`): Dynamo 1.6.0, SGLang 0.5.21, NIXL 1.5.0 and the EFA 1.50.0 libraries that LIBFABRIC needs. Deployed with the Dynamo operator chart 1.5.1; every component sets `runtimeVersionOverride: "1.6.0"`. PD over EFA was not re-measured on this image.
+- **Runtime of the sample.** The public NGC image `nvcr.io/nvidia/ai-dynamo/sglang-runtime:1.6.0-efa@sha256:d574951b0dbd037bdcaabe121431a83cd047a5c106cb243fe6f2f97f2e456cd2` (the `RUNTIME_IMAGE` of `versions.env`): Dynamo 1.6.0, SGLang 0.5.21, NIXL 1.5.0 and the EFA 1.50.0 libraries that LIBFABRIC needs. Deployed with the Dynamo operator chart 1.5.1; every component sets `runtimeVersionOverride: "1.6.0"`. PD over EFA was not re-measured on this image. The NVLink variants were not run on p6-b200 with it; the p5e measurements of 3.1.1 used this image on another instance type.
 - **Runs of record (every Track Q result: W2, W3 and the demo).** Model `Qwen/Qwen3.8-27B-FP8` (revision `017b9c7a…`), TP1, 8 GPUs of one `p6-b200.48xlarge`. Every number in this guide was measured with a derived SGLang 0.5.22 build on a Dynamo 1.6.0 nightly, which is not distributed; the cells and flags are the ones of this repository, only the image differs. The workers set `DYN_FORWARDPASS_METRIC_PORT=""`: without it the derived 0.5.22 build crashed on the first decode, and the cells keep it with the public image.
 - **Restore correctness: measured on 0.5.18 (15/16 L3), 0.5.21 (16/16 L2 and L3 on Qwen3.8 TP1, bs=1, RTX PRO 6000) and 0.5.22 (16/16) on L2 and L3 of Qwen3.8 TP1 on B200.** It matters for S6 and S7, where the prefill workers run HiCache. In an earlier image gate a 0.5.21 build silently corrupted restored KV on another hybrid model (only 7/16 L2 and 1/16 L3 restores returned the right first code): measure restore correctness before speed for every new model and image.
 - **Not used: the NGC image** `nvcr.io/nvidia/ai-dynamo/sglang-runtime:1.5.1` (and its `-efa` variant for LIBFABRIC) ships Dynamo 1.5.1 / SGLang 0.5.18, the version that dropped an L3 restore above.

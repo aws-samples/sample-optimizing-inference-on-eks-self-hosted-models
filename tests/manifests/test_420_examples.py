@@ -76,6 +76,10 @@ NAMESPACES: dict[str, str] = {  # folder -> the one namespace its DGD lands in
     "06-kv-router-pd": "s-dis",
     "07-pd-hicache": "s-dis-hic",
 }
+# 08-pd-nvlink is not one of the eight published cells (no folder in FOLDERS, no render under manifests/track-q-qwen38/rendered):
+# it is the NVLink alternative of cell S3, built on manifests/track-q-qwen38/variants-nvlink/S3.  It is kept out of FOLDERS on
+# purpose, so the cell-per-folder checks stay exactly eight; its own checks are in test_421_example_pd_nvlink.py.
+EXTRA = "08-pd-nvlink"
 VARIANTS = [f for f in FOLDERS if f != "00-baseline"]
 BASELINE = "00-baseline"
 FILES = ("kustomization.yaml", "rendered.yaml", "diff-vs-baseline.diff", "README.md")
@@ -132,10 +136,10 @@ def _diff_body(folder: str) -> str:
 
 
 # ----------------------------------------------------------------------------- layout and cell mapping
-def test_examples_directory_holds_exactly_the_eight_folders_and_a_readme() -> None:
+def test_examples_directory_holds_exactly_the_eight_cell_folders_the_nvlink_example_and_a_readme() -> None:
     assert EX.is_dir(), "examples/ missing"
     names = sorted(p.name for p in EX.iterdir() if p.name != ".DS_Store")
-    assert names == sorted([*FOLDERS, "README.md"])
+    assert names == sorted([*FOLDERS, EXTRA, "README.md"])
 
 
 def test_the_folders_cover_every_track_q_cell_exactly_once() -> None:
@@ -499,8 +503,8 @@ def test_render_script_reproduces_every_committed_file(tmp_path: Path) -> None:
     out = tmp_path / "out"
     proc = lib_proc.run([str(SCRIPT), str(out)], capture_output=True, text=True, timeout=300, cwd=tmp_path, check=False)
     assert proc.returncode == 0, proc.stdout + proc.stderr
-    assert sorted(p.name for p in out.iterdir()) == sorted(FOLDERS)
-    for folder in FOLDERS:
+    assert sorted(p.name for p in out.iterdir()) == sorted([*FOLDERS, EXTRA])
+    for folder in [*FOLDERS, EXTRA]:
         produced = sorted(p.name for p in (out / folder).iterdir())
         expected = ["rendered.yaml"] if folder == BASELINE else ["diff-vs-baseline.diff", "rendered.yaml"]
         assert produced == expected, folder
@@ -514,7 +518,7 @@ def test_render_script_header_documents_the_diff_layout_of_every_variant() -> No
     several = re.search(r"Several worker components \(([^:)]*)[:)]", header)
     assert single and several, "the header must list the one-worker and several-worker folders"
     assert sorted(re.findall(r"\d\d-[a-z-]+", single.group(1))) == sorted(SINGLE_WORKER)
-    assert sorted(re.findall(r"\d\d-[a-z-]+", several.group(1))) == sorted(PD)
+    assert sorted(re.findall(r"\d\d-[a-z-]+", several.group(1))) == sorted([*PD, EXTRA])
 
 
 def test_render_script_default_target_is_examples_and_it_does_not_touch_manifests() -> None:

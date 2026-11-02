@@ -156,7 +156,7 @@ def test_every_container_runs_the_single_config_image(rel: str) -> None:
 def test_image_literal_lives_only_in_the_config_and_the_committed_renders() -> None:
     assert Q.trackq_tree_files(), "manifests/track-q-qwen38 does not exist yet"
     for p in Q.trackq_tree_files():
-        if Q.RENDERED_DIR in p.parents:
+        if Q.RENDERED_DIR in p.parents or Q.RENDERED_DIR.with_name("rendered-nvlink") in p.parents:  # the committed renders embed the image
             continue
         text = p.read_text(errors="ignore")
         assert "d574951b0dbd" not in text, f"{p.relative_to(L.MANIFESTS)}: image digest hard-coded outside platform.env"

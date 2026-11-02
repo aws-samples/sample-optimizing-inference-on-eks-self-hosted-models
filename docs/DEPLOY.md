@@ -167,6 +167,12 @@ Only one cell fits on the GPU node: run `kubectl delete -k examples/<folder>` be
 running cell, `scripts/50-toggle-router.sh kv s-agg` flips R without restarting the workers. Each folder's README
 says what the technique changes.
 
+The PD cells use EFA (NIXL LIBFABRIC), the default and the transport of the matrix driver. `examples/08-pd-nvlink` is
+the NVLink alternative of S3, a design reference that was not run on p6-b200: it needs `privileged` + `hostPID` pods
+and prefill and decode on the same node, and it is not one of the eight cells. Delete `examples/03-pd-disaggregation`
+before you apply it. The choice, with the NVLink variants of S5, S6 and S7, is explained in the
+[PD guide](optimizations/pd-disaggregation/README.md#311-nvlink-on-one-node-design-reference-not-run-on-p6-b200).
+
 ## 7. Run the matrix (`tools/matrix_driver`)
 
 The driver runs a plan (cells and repetitions) as a Job in the `bench` namespace, resets the caches before each run,
@@ -258,8 +264,9 @@ kubectl --context "$KUBE_CONTEXT" -n monitoring get secret prometheus-grafana -o
 Open `http://localhost:3000` and log in as `admin`. `kubectl port-forward` keeps Grafana private; the CloudFront + WAF
 edge (`enable_grafana_edge`) is off by default. Its hop from CloudFront to the internal NLB is plain HTTP, so turning
 it on also needs `grafana_edge_allow_plain_http_origin = true`: see
-[terraform/README.md](../terraform/README.md#grafana). Terraform loads the dashboards of `dashboards/`: the demo matrix and
-compare views, Dynamo, SGLang and DCGM. [dashboards/README.md](../dashboards/README.md) describes each panel.
+[terraform/README.md](../terraform/README.md#grafana). The Application Load Balancer in front of Grafana in the
+architecture figure is a reference design that Terraform does not build: the edge it implements is still CloudFront + NLB.
+Terraform loads the dashboards of `dashboards/`: the demo matrix and compare views, Dynamo, SGLang and DCGM. [dashboards/README.md](../dashboards/README.md) describes each panel.
 
 ## Teardown
 

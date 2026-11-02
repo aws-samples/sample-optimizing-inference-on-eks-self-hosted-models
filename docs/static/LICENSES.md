@@ -26,7 +26,7 @@ byte-identical (sha256 below) to the upstream file on the project's default bran
 ## Other icons
 
 - **AWS Architecture Icons** (the `mxgraph.aws4` shapes: AWS Cloud, Region, VPC, EC2 instance contents, Amazon EKS,
-  Amazon S3, Amazon ECR, Amazon CloudFront, Network Load Balancer, Elastic Fabric Adapter, Users). Terms at
+  Amazon S3, Amazon ECR, Application Load Balancer, Elastic Fabric Adapter, Users). Terms at
   [AWS Architecture Icons](https://aws.amazon.com/architecture/icons/): "We allow customers and partners to use these
   toolkits and assets to create architecture diagrams."
 - **Kubernetes Job icon** (cell `driver-icon`, `mxgraph.kubernetes.icon2` with `prIcon=job`): drawn by the draw.io

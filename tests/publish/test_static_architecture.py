@@ -11,8 +11,9 @@
   the AWS Architecture Icons terms and the trademark sentence.  The embedded SVGs are exactly the approved ones of
   ``APPROVED_SVGS`` and LICENSES.md lists no other SVG digest (Grafana is a text label, without its logo).
 * The labels that restate a fact of the repository follow it: the Region of the tfvars example, the version pins of
-  ``versions.env``, the NodePool of the Frontend manifest, the optional (off by default) CloudFront edge with the
-  ``kubectl port-forward`` default of Grafana, and the NGC runtime image with an optional ECR copy.
+  ``versions.env``, the NodePool of the Frontend manifest, the optional (off by default) Grafana edge with the
+  ``kubectl port-forward`` default of Grafana, and the NGC runtime image with an optional ECR copy.  The Grafana edge is the
+  reference design (an ALB, dashed because optional); the Terraform edge it stands for is documented in the README, not drawn.
 * ``e_guards.AS_DRAWN_HITS``, the one exemption the diagram has, is exact both ways: the .drawio carries those guard hits,
   no more and no fewer, and no other file is exempt.
 """
@@ -36,8 +37,8 @@ DRAWIO = "docs/static/architecture.drawio"
 PNG = "docs/static/architecture.png"
 LICENSES = "docs/static/LICENSES.md"
 SHA256 = {
-    DRAWIO: "e0dd479e90a2a8ac681d63bea99b10c7691511d08d2416ba5310f1ec4bf24650",
-    PNG: "17ae02d904e2f4df35b589d75fe1975f7528d927ed9ef838d69b7128dd2f904f",
+    DRAWIO: "dd87546d9fd6598f25c0457b6b88a3922b4222fa47bcf2de5120632ae65cf30e",
+    PNG: "c19f108b4ef9fa4662dcf1b052ed4451d1f85a548b40e749838728c9450d09e3",
 }
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 PNG_MAX_BYTES = 1536 * 1024
@@ -47,7 +48,7 @@ APPROVED_SVGS = {  # product -> sha256 of its embedded SVG, as LICENSES.md lists
     "Prometheus": "a96d48cc7f1c91de940dacbf30581850fd2c0ed4afaf1b0b94fb86eb1d0aef6e",
 }
 PRODUCTS = tuple(APPROVED_SVGS)
-OPTIONAL_EDGE = ("e-graf-nlb", "e-nlb-cf", "e-cf-viewer")  # Grafana -> internal NLB -> CloudFront -> browser
+ALB_SHAPE = "mxgraph.aws4.application_load_balancer"  # the reference design puts an ALB in front of Grafana (no CloudFront)
 TRADEMARK_SENTENCE = (
     "Logos are trademarks of their owners; the project licenses cover the software/artwork as stated upstream and do not "
     "grant any endorsement."
@@ -168,9 +169,13 @@ def test_diagram_labels_follow_the_repository() -> None:
     variables = (ROOT / "terraform/cluster/variables.tf").read_text(encoding="utf-8")
     for var in ("enable_grafana_edge", "create_runtime_mirror_repository"):
         assert re.search(rf'variable "{var}" \{{[^}}]*default\s*=\s*false', variables), f"{var} defaults to false"
-    for edge in OPTIONAL_EDGE:
-        assert "dashed=1" in style[edge], f"{edge}: the CloudFront edge is optional (enable_grafana_edge = false)"
-    assert "optional" in value["cf-sub"] and "optional" in value["lg-t8"], "the edge is labelled optional"
+    alb = [cid for cid, st in style.items() if ALB_SHAPE in st]
+    assert len(alb) == 1, f"one ALB icon in front of Grafana: {alb}"
+    edges = [cid for cid, cell in cells.items() if cell.get("edge") == "1" and alb[0] in (cell.get("source"), cell.get("target"))]
+    assert edges, "an edge ties the ALB to Grafana"
+    for edge in edges:
+        assert "dashed=1" in style[edge], f"{edge}: the load-balancer edge is optional (the Terraform edge is off by default)"
+    assert "optional" in value["lg-t8"], "the edge is labelled optional"
     assert "port-forward" in value["lg-t8"], "the legend names the default way to Grafana"
     assert "NGC" in value["lg-t2"] and "optional" in value["ecr-sub"], "runtime image from NGC, ECR copy optional"
 

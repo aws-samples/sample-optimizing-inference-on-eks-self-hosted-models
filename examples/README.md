@@ -19,6 +19,12 @@ deploys exactly that cell.
 R = KV router (`DYN_ROUTER_MODE=kv`), O = HiCache offload, D = PD disaggregation. The folders 00 to 04 add
 one technique at a time (04 adds all three); 05 to 07 are the remaining pairs.
 
+`08-pd-nvlink` is not one of the eight cells: it is the NVLink alternative of S3 (a design reference, not run on
+p6-b200), built on `manifests/track-q-qwen38/variants-nvlink/S3`. It needs `privileged` + `hostPID` and prefill and
+decode on the same node. Its render, and those of the NVLink variants of S5, S6 and S7, are in
+`manifests/track-q-qwen38/rendered-nvlink/`, not in `rendered/`. EFA stays the default: apply `03-pd-disaggregation`
+for EFA or `08-pd-nvlink` for NVLink, and delete one before you apply the other (same namespace `s-dis`, same DGD `q38`).
+
 Each folder holds:
 - `kustomization.yaml`: the pointer to the cell;
 - `rendered.yaml`: `kubectl kustomize` of the folder (identical to `manifests/track-q-qwen38/rendered/S<n>.yaml`);
@@ -27,10 +33,12 @@ Each folder holds:
 - `README.md`: what the cell does, what it changes, how to apply it and which dashboard shows it.
 
 Do not edit `rendered.yaml` or `diff-vs-baseline.diff` by hand. Change `manifests/track-q-qwen38`, then run
-`scripts/render-track-q.sh` and `scripts/render-examples.sh` (both offline: they only render).
+`scripts/render-track-q.sh` (and `scripts/render-track-q-nvlink.sh` for the NVLink variants) and `scripts/render-examples.sh`
+(all offline: they only render).
 
 Only one GPU topology fits on the node at a time, and the manifests do not create namespaces: delete the
 folder you applied before you apply the next one. Two folders with the same namespace differ only in the
-router mode of the Frontend (same DGD name `q38`), so applying one over the other updates it in place. For the
+router mode of the Frontend (same DGD name `q38`), so applying one over the other updates it in place; `03` and `08`
+differ in the worker pod template, so delete one before the other. For the
 recorded matrix, the matrix driver (`tools/matrix_driver`) tears each topology down, and empties its HiCache L3
 directory, before the next one.

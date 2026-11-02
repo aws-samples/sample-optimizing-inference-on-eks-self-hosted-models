@@ -181,6 +181,6 @@ def test_committed_renders_carry_the_pinned_runtime_image(glob: str) -> None:
 
 def test_committed_diffs_are_sanitized_but_not_emptied() -> None:
     files = _tracked("examples/*/diff-vs-baseline.diff")
-    assert len(files) == 7, files  # one per variant folder of examples/ (all eight cells, baseline has none)
+    assert len(files) == 8, files  # one per variant folder of examples/: seven cells (baseline has none) plus 08-pd-nvlink
     assert all(S.read_text(p) for p in files)
 

@@ -14,7 +14,8 @@ combined on one `p6-b200.48xlarge` (8x NVIDIA B200) that serves `Qwen/Qwen3.8-27
 
 - **R** = KV cache-aware routing: the Dynamo Frontend's KV router (`DYN_ROUTER_MODE=kv`) instead of round-robin.
 - **O** = SGLang HiCache: KV offload from GPU memory to host RAM (L2) and local NVMe (L3, through NIXL). Dynamo KVBM is not used.
-- **D** = prefill/decode disaggregation: 4 prefill + 4 decode workers, with the KV moved over NIXL LIBFABRIC on EFA.
+- **D** = prefill/decode disaggregation: 4 prefill + 4 decode workers, with the KV moved over NIXL LIBFABRIC on EFA
+  ([an NVLink alternative](#choosing-the-pd-transport) exists for one node).
 
 Every on/off combination is one cell, S0 (none) to S7 (all three), with the same model, image, GPUs and trace.
 Each cell is a Kustomize overlay; all eight are ready to apply in [examples/](examples/). The repository also holds
@@ -23,7 +24,7 @@ offline test suite.
 
 ## Architecture
 
-![S0 baseline and S7 (R + O + D) on one Amazon EKS Auto Mode GPU node](docs/static/architecture.png)
+![Reference design: S0 baseline and S7 (R + O + D) on one Amazon EKS Auto Mode GPU node, NVLink between prefill and decode on the node, an ALB in front of Grafana](docs/static/architecture.png)
 
 Source: [docs/static/architecture.drawio](docs/static/architecture.drawio) (draw.io). Icons: AWS Architecture Icons;
 the project logos and their licenses are listed in [docs/static/LICENSES.md](docs/static/LICENSES.md).
@@ -31,7 +32,9 @@ the project logos and their licenses are listed in [docs/static/LICENSES.md](doc
 The figure puts S0 (no technique) next to S7 (R + O + D) on the same EKS Auto Mode GPU node, one at a time. The staging
 Job copies the weights from Hugging Face to the S3 model bucket and the prefetch Job copies them from S3 to the node.
 The matrix driver Job replays the trace with aiperf against the Frontend and uploads the results to the results bucket;
-Prometheus collects the metrics and Grafana shows them.
+Prometheus collects the metrics and Grafana shows them. The figure is a **reference design**, not a measurement: on the
+p6-b200 node it draws the KV going from the prefill pod to the decode pod over NVLink when both run on the same node, and
+EFA for traffic between nodes. The published runs used EFA, not NVLink, and the NVLink recipe was not run on p6-b200.
 
 - `terraform/bootstrap` creates the model and results buckets. `terraform/cluster` creates the VPC (one NAT gateway),
   EKS Auto Mode, the `cpu-demo` pool, one GPU NodeClass/NodePool per group of GPU types, the namespaces, the EKS Pod
@@ -39,7 +42,24 @@ Prometheus collects the metrics and Grafana shows them.
   runtime image), Prometheus/Grafana with the dashboards, and the Dynamo operator.
 - A DynamoGraphDeployment (DGD) per cell runs the Frontend on `cpu-demo` and the SGLang workers on the GPU node. Only
   one cell holds the GPUs at a time. The weights are copied once from S3 to the node's NVMe.
-- Grafana is reached with `kubectl port-forward`. A CloudFront + AWS WAF edge exists in Terraform and is off by default.
+- Grafana is reached with `kubectl port-forward`. The figure shows an Application Load Balancer (ALB) in front of Grafana
+  as a reference design that is still to be implemented. The Terraform edge (`enable_grafana_edge`, off by default) still
+  implements CloudFront + AWS WAF + an internal NLB.
+
+### Choosing the PD transport
+
+The PD cells (S3, S5, S6, S7) come with two transports. EFA (NIXL LIBFABRIC) is the default and the transport of every
+published run and of the matrix driver. NVLink is a reference design for prefill and decode pods on the same node; EFA
+stays the transport for traffic between nodes. A test on another instance type (H200) found the two at parity, an
+inconclusive result, and measured the large cost of a silent TCP fallback with a default pod spec ([PD guide](docs/optimizations/pd-disaggregation/README.md#311-nvlink-on-one-node-design-reference-not-run-on-p6-b200)).
+
+```bash
+kubectl --context "$KUBE_CONTEXT" apply --server-side -f manifests/track-q-qwen38/rendered/S5.yaml          # EFA (default)
+kubectl --context "$KUBE_CONTEXT" apply --server-side -f manifests/track-q-qwen38/rendered-nvlink/S5.yaml  # NVLink (reference design)
+```
+
+Delete one before you apply the other (same namespace `s-dis`, same DGD `q38`); for S3 the pair is `examples/03-pd-disaggregation`
+and [`examples/08-pd-nvlink`](examples/08-pd-nvlink/). NVLink needs `privileged` and `hostPID` pods, so a Pod Security `privileged` namespace.
 
 ## Versions
 
@@ -150,8 +170,8 @@ At 25 req/s, from [docs/results/w3-16k-cells.csv](docs/results/w3-16k-cells.csv)
 |---|---|
 | `terraform/` | `bootstrap/` (S3 buckets) and `cluster/` (VPC, EKS Auto Mode, GPU pools, Dynamo, observability): [terraform/README.md](terraform/README.md) |
 | `scripts/` | `gen_env.py`, `10-stage-model.sh`, `11-prefetch.sh`, `13-prepull.sh`, `50-toggle-router.sh`, `preflight-flags.sh` and the offline render scripts |
-| `manifests/` | Kustomize: `track-q-qwen38/` (cells S0-S7, components, committed renders), `config/` (the platform env), `node-ops/`, `bench/`, `stage-mocker/`, `demo/` |
-| `examples/` | [examples/](examples/): one folder per cell, all eight (S0 to S7), with its render and its diff against the baseline |
+| `manifests/` | Kustomize: `track-q-qwen38/` (cells S0-S7, components, committed renders, the NVLink variants), `config/` (the platform env), `node-ops/`, `bench/`, `stage-mocker/`, `demo/` |
+| `examples/` | [examples/](examples/): one folder per cell, all eight (S0 to S7), with its render and its diff against the baseline, and `08-pd-nvlink` |
 | `tools/` | `matrix_driver/` (in-cluster driver), `demo_bench/` (trace generator and analysis CLI), `stage_model/` (staging Job), `bench-image/` |
 | `plans/` | Driver plans: `w3-16k/` (W3-16K) and `w2-long-context/` |
 | `workloads/` | `w3-16k/`: the workload parameters and an offline regeneration of its trace |

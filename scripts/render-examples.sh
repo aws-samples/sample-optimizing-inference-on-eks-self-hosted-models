@@ -3,7 +3,8 @@
 # SPDX-License-Identifier: MIT-0
 # render-examples.sh [OUT_ROOT]
 #
-# Regenerates the committed per-technique views under examples/ (one folder per Track Q cell):
+# Regenerates the committed per-technique views under examples/ (one folder per Track Q cell, plus 08-pd-nvlink, the
+# NVLink alternative of cell S3, a design reference built on manifests/track-q-qwen38/variants-nvlink/S3):
 #   OUT_ROOT/<dir>/rendered.yaml         = `kubectl kustomize examples/<dir>` (the folder only points at its cell)
 #   OUT_ROOT/<dir>/diff-vs-baseline.diff = per-component diff of 00-baseline/rendered.yaml vs <dir>/rendered.yaml
 #                                          (every folder except 00-baseline; layout below)
@@ -19,8 +20,8 @@
 #   +++ b/<dir>/rendered.yaml#<variant part>
 # * One worker component (01-kv-router, 02-hicache, 05-kv-router-hicache): each section is the plain `diff -u`
 #   of the two parts.
-# * Several worker components (03-pd-disaggregation, 04-all-three, 06-kv-router-pd, 07-pd-hicache: prefill and
-#   decode): `diff -U1`, and
+# * Several worker components (03-pd-disaggregation, 04-all-three, 06-kv-router-pd, 07-pd-hicache, 08-pd-nvlink:
+#   prefill and decode): `diff -U1`, and
 #   - the GPU-pin preamble of the launch script (components/pd-efa) becomes
 #     `# ... <N> added lines omitted (GPU-pin preamble)`: the first worker section (prefill) still shows its
 #     leading comment and its tail from the `export` line, a later one (decode) collapses all of it;
@@ -34,7 +35,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 EXAMPLES_DIR="$REPO_ROOT/examples"
 BASELINE="00-baseline"
-FOLDERS="00-baseline 01-kv-router 02-hicache 03-pd-disaggregation 04-all-three 05-kv-router-hicache 06-kv-router-pd 07-pd-hicache"
+FOLDERS="00-baseline 01-kv-router 02-hicache 03-pd-disaggregation 04-all-three 05-kv-router-hicache 06-kv-router-pd 07-pd-hicache 08-pd-nvlink"
 PREAMBLE_MIN=20 # shortest code run of the GPU-pin preamble worth collapsing
 
 if [ $# -gt 1 ]; then

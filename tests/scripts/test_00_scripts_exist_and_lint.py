@@ -64,6 +64,7 @@ KEPT_SCRIPTS = {
     "preflight-flags.sh",
     "render-examples.sh",
     "render-track-q.sh",
+    "render-track-q-nvlink.sh",  # the same renders for the NVLink alternative (manifests/track-q-qwen38/rendered-nvlink)
     "export-public.sh",      # maintainer tooling for the public export (kept internal, not shipped)
     "export-allowlist.txt",  # the allowlist read by export-public.sh
 }
