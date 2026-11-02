@@ -1,0 +1,32 @@
+# UCX environment and hostPID of the NVLink alternative on the prefill and decode pods (the backend value is switched by
+# name in kustomization.yaml). The test ops fail the render unless pd-efa put the roles in place.
+- op: test
+  path: /spec/components/1/name
+  value: prefill
+- op: add
+  path: /spec/components/1/podTemplate/spec/hostPID
+  value: true
+- op: add
+  path: /spec/components/1/podTemplate/spec/containers/0/env/-
+  value: {name: UCX_TLS, value: "cuda_ipc,cuda_copy,tcp"}
+- op: add
+  path: /spec/components/1/podTemplate/spec/containers/0/env/-
+  value: {name: UCX_PROTO_INFO, value: "y"}
+- op: add
+  path: /spec/components/1/podTemplate/spec/containers/0/env/-
+  value: {name: UCX_LOG_LEVEL, value: info}
+- op: test
+  path: /spec/components/2/name
+  value: decode
+- op: add
+  path: /spec/components/2/podTemplate/spec/hostPID
+  value: true
+- op: add
+  path: /spec/components/2/podTemplate/spec/containers/0/env/-
+  value: {name: UCX_TLS, value: "cuda_ipc,cuda_copy,tcp"}
+- op: add
+  path: /spec/components/2/podTemplate/spec/containers/0/env/-
+  value: {name: UCX_PROTO_INFO, value: "y"}
+- op: add
+  path: /spec/components/2/podTemplate/spec/containers/0/env/-
+  value: {name: UCX_LOG_LEVEL, value: info}

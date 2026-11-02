@@ -1,0 +1,62 @@
+--- a/03-pd-disaggregation/rendered.yaml
++++ b/03-pd-disaggregation/nvlink/rendered.yaml
+@@ -185,7 +185,7 @@
+           - name: SGLANG_CACHE_DIR
+             value: /compile-cache/sglang
+           - name: SGLANG_DISAGGREGATION_NIXL_BACKEND
+-            value: LIBFABRIC
++            value: UCX
+           - name: FI_PROVIDER
+             value: efa
+           - name: FI_EFA_USE_DEVICE_RDMA
+@@ -198,6 +198,12 @@
+             value: /opt/amazon/efa/lib:/opt/dynamo/nixl-ucx-compat:/opt/dynamo/nixl-capi:/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/cuda/lib64
+           - name: EXPECTED_GPUS
+             value: "1"
++          - name: UCX_TLS
++            value: cuda_ipc,cuda_copy,tcp
++          - name: UCX_PROTO_INFO
++            value: "y"
++          - name: UCX_LOG_LEVEL
++            value: info
+           image: nvcr.io/nvidia/ai-dynamo/sglang-runtime:1.6.0-efa@sha256:d574951b0dbd037bdcaabe121431a83cd047a5c106cb243fe6f2f97f2e456cd2
+           imagePullPolicy: IfNotPresent
+           livenessProbe:
+@@ -243,6 +249,7 @@
+           - mountPath: /compile-cache
+             name: compile-cache
+           workingDir: /workspace
++        hostPID: true
+         initContainers:
+         - args:
+           - |
+@@ -441,7 +448,7 @@
+           - name: SGLANG_CACHE_DIR
+             value: /compile-cache/sglang
+           - name: SGLANG_DISAGGREGATION_NIXL_BACKEND
+-            value: LIBFABRIC
++            value: UCX
+           - name: FI_PROVIDER
+             value: efa
+           - name: FI_EFA_USE_DEVICE_RDMA
+@@ -454,6 +461,12 @@
+             value: /opt/amazon/efa/lib:/opt/dynamo/nixl-ucx-compat:/opt/dynamo/nixl-capi:/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/cuda/lib64
+           - name: EXPECTED_GPUS
+             value: "1"
++          - name: UCX_TLS
++            value: cuda_ipc,cuda_copy,tcp
++          - name: UCX_PROTO_INFO
++            value: "y"
++          - name: UCX_LOG_LEVEL
++            value: info
+           image: nvcr.io/nvidia/ai-dynamo/sglang-runtime:1.6.0-efa@sha256:d574951b0dbd037bdcaabe121431a83cd047a5c106cb243fe6f2f97f2e456cd2
+           imagePullPolicy: IfNotPresent
+           livenessProbe:
+@@ -499,6 +512,7 @@
+           - mountPath: /compile-cache
+             name: compile-cache
+           workingDir: /workspace
++        hostPID: true
+         initContainers:
+         - args:
+           - |

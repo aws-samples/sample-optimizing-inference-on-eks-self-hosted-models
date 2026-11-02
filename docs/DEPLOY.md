@@ -167,6 +167,14 @@ Only one cell fits on the GPU node: run `kubectl delete -k examples/<folder>` be
 running cell, `scripts/50-toggle-router.sh kv s-agg` flips R without restarting the workers. Each folder's README
 says what the technique changes.
 
+The PD cells use EFA (NIXL LIBFABRIC), the default and the transport of the matrix driver. Each of the four PD
+folders (03, 04, 06, 07) also carries the NVLink option in its `nvlink/` sub-folder, a design reference that was not
+run on p6-b200: `kubectl --context "$KUBE_CONTEXT" apply --server-side -k examples/<folder>/nvlink`, for example
+`examples/03-pd-disaggregation/nvlink`. It needs `privileged` + `hostPID` pods and prefill and decode on the same node. No Terraform change is needed: the scenario namespaces (`s-*`) are already created with the Pod Security `privileged` profile, because the EFA pods are `privileged` too.
+Both options deploy the same namespace and DGD `q38`: delete the one you applied before you apply the other. When to
+use EFA and when to use NVLink: [Choosing the PD transport](../README.md#choosing-the-pd-transport) and the
+[PD guide](optimizations/pd-disaggregation/README.md#311-nvlink-on-one-node-design-reference-not-run-on-p6-b200).
+
 ## 7. Run the matrix (`tools/matrix_driver`)
 
 The driver runs a plan (cells and repetitions) as a Job in the `bench` namespace, resets the caches before each run,
@@ -258,8 +266,9 @@ kubectl --context "$KUBE_CONTEXT" -n monitoring get secret prometheus-grafana -o
 Open `http://localhost:3000` and log in as `admin`. `kubectl port-forward` keeps Grafana private; the CloudFront + WAF
 edge (`enable_grafana_edge`) is off by default. Its hop from CloudFront to the internal NLB is plain HTTP, so turning
 it on also needs `grafana_edge_allow_plain_http_origin = true`: see
-[terraform/README.md](../terraform/README.md#grafana). Terraform loads the dashboards of `dashboards/`: the demo matrix and
-compare views, Dynamo, SGLang and DCGM. [dashboards/README.md](../dashboards/README.md) describes each panel.
+[terraform/README.md](../terraform/README.md#grafana). The Application Load Balancer in front of Grafana in the
+architecture figure is a reference design that Terraform does not build: the edge it implements is still CloudFront + NLB.
+Terraform loads the dashboards of `dashboards/`: the demo matrix and compare views, Dynamo, SGLang and DCGM. [dashboards/README.md](../dashboards/README.md) describes each panel.
 
 ## Teardown
 

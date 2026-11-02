@@ -167,6 +167,36 @@ from L3, read the engine metric `sglang:cached_tokens_total` with the label `sto
 The first request after a worker starts pays a warm-up (just-in-time compilation): in the tests an uncached 8K prompt
 had a TTFT of 1.88 s on the first request and 0.85 s once the worker was warm. Send one request before you measure.
 
+### KV transfer silently on TCP: how to detect and what changes it
+
+Symptom: a prefill/decode (PD) cell answers correctly and logs no error, but the TTFT grows with the prompt length and
+the bytes on eth0 of the prefill node are about the KV bytes. Nothing fails, because TCP is a valid transport.
+
+Cause: the NIXL backend the pods run is not one they can use at speed. On EFA, UCX or an unset
+`SGLANG_DISAGGREGATION_NIXL_BACKEND` falls back to TCP; the EFA cells of this repository set `LIBFABRIC`. On one NVLink
+node (seen on an H200 node, not on p6-b200), UCX with a default pod spec does not pick `cuda_ipc` between the two pods and falls back to TCP too.
+
+Detect it:
+
+- On EFA: each engine's boot log must show `Backend LIBFABRIC was instantiated`, and the eth0 delta must be a tiny share
+  of the KV bytes (see [section 8 of the PD guide](optimizations/pd-disaggregation/README.md#8-how-to-measure-and-pitfalls)).
+- With UCX (the NVLink variants): the pods set `UCX_PROTO_INFO=y` and `UCX_LOG_LEVEL=info`. The protocol table in the
+  log of the NIXL initiator, the prefill pod for SGLang, must list `cuda_ipc` for the prefill-to-decode endpoint:
+  `kubectl --context "$KUBE_CONTEXT" -n s-dis logs -l nvidia.com/dynamo-component-type=prefill -c main --tail=-1 | grep cuda_ipc`
+  (adapt the namespace and the labels to your deployment). `tcp/eth0` rows appear in a working setup too: look for the
+  presence of `cuda_ipc`, not the absence of `tcp`.
+- On NVLink: the NVLink data counters of the two GPUs should grow by about the KV bytes moved; flat at zero means TCP.
+  The panel "NVLink throughput (DCGM)" of `dashboards/demo/matrix.json` shows them if your nodes export the DCGM PROF fields.
+
+What changes it: on EFA, `manifests/track-q-qwen38/components/pd-efa` (LIBFABRIC, the EFA environment, one EFA interface
+per pod). On one node with NVLink, `manifests/track-q-qwen38/components/pd-nvlink` (the UCX recipe), which is a design
+reference: it needs `privileged: true` and `hostPID: true`, was not run on p6-b200, and works on one node only; across
+nodes EFA is still the path. Apply the NVLink variant of a cell from `manifests/track-q-qwen38/rendered-nvlink/` or
+the `nvlink/` sub-folder of a PD example (`examples/<folder>/nvlink`, for example `examples/03-pd-disaggregation/nvlink`),
+and the EFA one from `manifests/track-q-qwen38/rendered/` or the folder itself (`examples/03-pd-disaggregation`). When to
+use EFA and when to use NVLink, and the limits: [the PD guide](optimizations/pd-disaggregation/README.md#311-nvlink-on-one-node-design-reference-not-run-on-p6-b200)
+and [Choosing the PD transport](../README.md#choosing-the-pd-transport).
+
 ## Model staging exit codes
 
 When the Job fails, `scripts/10-stage-model.sh` stops and prints the `kubectl logs` command of the Job. The log line says

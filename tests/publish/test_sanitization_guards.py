@@ -181,6 +181,9 @@ def test_committed_renders_carry_the_pinned_runtime_image(glob: str) -> None:
 
 def test_committed_diffs_are_sanitized_but_not_emptied() -> None:
     files = _tracked("examples/*/diff-vs-baseline.diff")
-    assert len(files) == 7, files  # one per variant folder of examples/ (all eight cells, baseline has none)
+    assert len(files) == 7, files  # one per variant folder of examples/: the seven cells that are not the baseline; no ninth example
     assert all(S.read_text(p) for p in files)
+    nvlink = sorted((S.REPO_ROOT / "examples").glob("*/nvlink/diff-vs-efa.diff"))  # the NVLink option of the four PD folders
+    assert [p.parent.parent.name for p in nvlink] == ["03-pd-disaggregation", "04-all-three", "06-kv-router-pd", "07-pd-hicache"]
+    assert all(p.read_text() for p in nvlink)
 
