@@ -1,0 +1,7 @@
+# examples/08-pd-nvlink = the NVLink alternative of Track Q cell S3 (prefill/decode, KV path of one node over UCX cuda_ipc).
+# DESIGN REFERENCE: not one of the recorded runs and not run on p6-b200; EFA (examples/03-pd-disaggregation) is the default.
+# Source: manifests/track-q-qwen38/variants-nvlink/S3 (render: rendered-nvlink/S3.yaml). Render with scripts/render-examples.sh.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../manifests/track-q-qwen38/variants-nvlink/S3

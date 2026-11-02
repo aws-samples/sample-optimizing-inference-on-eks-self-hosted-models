@@ -1,0 +1,38 @@
+# NVLink alternative of the prefill/decode KV path. DESIGN REFERENCE: it was not run on p6-b200; the published runs
+# use components/pd-efa alone (NIXL LIBFABRIC on EFA) and stay the default.
+# Apply it AFTER pd-efa, on the prefill and decode pods of a PD cell (see variants-nvlink/). It changes exactly:
+#   * SGLANG_DISAGGREGATION_NIXL_BACKEND LIBFABRIC -> UCX (replaced by NAME: the env index differs with and without HiCache);
+#   * adds UCX_TLS=cuda_ipc,cuda_copy,tcp, UCX_PROTO_INFO=y and UCX_LOG_LEVEL=info (patch.yaml);
+#   * adds spec.hostPID: true (UCX cuda_ipc needs one PID namespace; patch.yaml).
+# FI_*, LD_LIBRARY_PATH, the vpc.amazonaws.com/efa request, privileged and the GPU-pin wrapper stay as pd-efa sets them:
+# EFA remains the transport for traffic between nodes. The pod needs privileged + hostPID (a Pod Security 'privileged'
+# namespace) and cuda_ipc works only when prefill and decode run on the same node; across nodes UCX falls back to tcp.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+configMapGenerator:
+  - name: pd-nvlink-config
+    literals:
+      - SGLANG_DISAGGREGATION_NIXL_BACKEND=UCX
+    options:
+      disableNameSuffixHash: true
+      annotations:
+        config.kubernetes.io/local-config: "true"
+patches:
+  - path: patch.yaml
+    target:
+      group: nvidia.com
+      version: v1beta1
+      kind: DynamoGraphDeployment
+      name: q38
+replacements:
+  - source:
+      kind: ConfigMap
+      name: pd-nvlink-config
+      fieldPath: "data.SGLANG_DISAGGREGATION_NIXL_BACKEND"   # a key of the ConfigMap above, not of the generated platform.env
+    targets:
+      - select:
+          kind: DynamoGraphDeployment
+          name: q38
+        fieldPaths:
+          - spec.components.[name=prefill].podTemplate.spec.containers.0.env.[name=SGLANG_DISAGGREGATION_NIXL_BACKEND].value
+          - spec.components.[name=decode].podTemplate.spec.containers.0.env.[name=SGLANG_DISAGGREGATION_NIXL_BACKEND].value
