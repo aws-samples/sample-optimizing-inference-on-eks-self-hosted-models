@@ -1,6 +1,5 @@
 # Idle pod on the GPU node with /mnt/.ephemeral mounted. The scripts reach it by its fixed
-# name (`kubectl exec -n node-ops ephemeral-shell`): weights marker check, L3 wipe while a
-# topology is scaled to zero. A fixed name keeps the driver RBAC at pods get + pods/exec.
+# name (`kubectl exec -n node-ops ephemeral-shell`) for the weights marker check.
 apiVersion: v1
 kind: Pod
 metadata:

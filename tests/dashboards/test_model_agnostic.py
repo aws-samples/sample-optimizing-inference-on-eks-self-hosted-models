@@ -44,7 +44,7 @@ def visible_texts(dash: dict[str, Any]) -> list[tuple[str, str]]:
 
 
 def test_dashboard_files_exist() -> None:
-    assert len(JSONS) >= 4
+    assert len(JSONS) >= 2
     for j in JSONS:
         assert j.is_file(), f"missing {j}"
 

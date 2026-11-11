@@ -12,9 +12,8 @@
 #   gpu-discovery.tf           EC2 facts of the GPU types -> modules/gpu-pools
 #   gpu-nodepool.tf            one GPU NodeClass/NodePool per group of types
 #   namespaces.tf              namespaces with explicit PSA labels
-#   iam-*.tf                   Pod Identity roles (model reader, results
-#                              writer, image mirror)
-#   ecr.tf                     project ECR repositories
+#   iam-model-access.tf        Pod Identity roles (model reader, model stager)
+#   iam-perf-results.tf        Pod Identity role of the benchmark results upload
 #   observability.tf           kube-prometheus-stack, dcgm-exporter, dashboards
 #   dynamo-platform.tf         dynamo-platform (operator only)
 #   grafana-edge.tf            optional CloudFront + WAF edge for Grafana
@@ -35,8 +34,7 @@ locals {
   cluster_name = coalesce(var.cluster_name, "${var.project_name}-${local.region_code}")
 
   # Bucket names follow <prefix>-{models,results}-<account>-<suffix> for the
-  # cluster <prefix>-<suffix>: scripts/lib/common.sh derives the Track Q
-  # cluster from MODEL_BUCKET. Same rule as ../bootstrap (owner of the buckets).
+  # cluster <prefix>-<suffix>. Same rule as ../bootstrap (owner of the buckets).
   cluster_name_prefix = regex("^(.*)-([^-]+)$", local.cluster_name)[0]
   cluster_name_suffix = regex("^(.*)-([^-]+)$", local.cluster_name)[1]
   model_bucket_name   = coalesce(var.model_bucket_name, "${local.cluster_name_prefix}-models-${local.account_id}-${local.cluster_name_suffix}")
@@ -54,8 +52,6 @@ locals {
   # this stack plans even before they exist.
   model_bucket_arn   = "arn:${data.aws_partition.current.partition}:s3:::${local.model_bucket_name}"
   results_bucket_arn = "arn:${data.aws_partition.current.partition}:s3:::${local.results_bucket_name}"
-
-  ecr_registry = "${local.account_id}.dkr.ecr.${var.aws_region}.${data.aws_partition.current.dns_suffix}"
 
   # In-cluster Prometheus (kube-prometheus-stack release `prometheus`).
   prometheus_endpoint = "http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090"

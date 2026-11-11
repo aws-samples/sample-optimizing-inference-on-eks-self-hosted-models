@@ -30,8 +30,8 @@ locals {
 
   private_subnet_by_az_id = zipmap(local.vpc_az_ids, module.vpc.private_subnets)
 
-  # cpu-demo (frontends, bench, monitoring) shares the AZ of the first GPU AZ
-  # unless pinned, so requests do not cross AZs.
+  # cpu-demo (monitoring, Dynamo operator) uses the first GPU AZ unless
+  # primary_az_id pins it, so its pods and the GPU nodes share an AZ.
   primary_az_id             = coalesce(var.primary_az_id, module.gpu_pools.az_ids[0])
   primary_az                = lookup(local.az_name_by_id, local.primary_az_id, "")
   primary_private_subnet_id = lookup(local.private_subnet_by_az_id, local.primary_az_id, null)

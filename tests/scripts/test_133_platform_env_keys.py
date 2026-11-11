@@ -20,7 +20,7 @@ from pathlib import Path
 
 import lib_scripts as S
 import pytest
-import trackq_scripts as T
+import q38_scripts as T
 
 COMMON = S.SCRIPTS_DIR / "lib" / "common.sh"
 KEY_PATTERN = "^[A-Z][A-Z0-9_]*$"

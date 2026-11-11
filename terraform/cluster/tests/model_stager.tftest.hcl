@@ -1,7 +1,7 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
 #
-# RED tests: the least-privilege Pod Identity role of the model staging Job (node-ops/model-stager,
+# Tests: the least-privilege Pod Identity role of the model staging Job (node-ops/model-stager,
 # terraform/cluster/iam-model-access.tf). Providers are mocked (nothing touches AWS or a cluster); the overrides are the
 # ones of root_efa_null.tftest.hcl so the plan reaches the IAM resources.
 #

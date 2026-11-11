@@ -5,7 +5,7 @@
 # GPU NodeClasses/NodePools: one pair per group of modules/gpu-pools
 #
 # Pool name = gpu-<gpu>-<cb|odcr|od|spot> (p6-b200 + capacity-block =
-# gpu-b200-cb, the name the Track Q manifests select). Only one purchase model
+# gpu-b200-cb, the name the manifests select). Only one purchase model
 # per stack (var.gpu_capacity_type):
 #
 # - Reserved pools (capacity-block, odcr) select the reservations through

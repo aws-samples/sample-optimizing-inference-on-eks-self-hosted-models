@@ -15,7 +15,7 @@
       }
     ]
   },
-  "description": "Dynamo Frontend + SGLang Engine \u2014 pipeline view with per-pool KV breakdown (full / SWA / Mamba), routing overhead, and collapsed disagg/hicache/per-worker rows. Sources: Dynamo metrics from the frontend HTTP port, SGLang engine metrics from the worker DYN_SYSTEM_PORT. | Modified for the KubeCon NA 2026 EKS sample from ai-dynamo/dynamo v1.5.1 dev/observability/grafana_dashboards/sglang.json (Apache-2.0, NVIDIA): HiCache panels grouped by `pool` (SGLang 0.5.18 label); engine hit rate derived from cached_tokens_total / prompt_tokens_total; panels on metrics outside the Dynamo v1.5.1 metrics catalog removed or replaced; every Dynamo/SGLang selector scoped by the $namespace variable. See dashboards/README.md.",
+  "description": "Dynamo Frontend + SGLang Engine \u2014 pipeline view with per-pool KV breakdown (full / SWA / Mamba), routing overhead, and collapsed disagg/hicache/per-worker rows. Sources: Dynamo metrics from the frontend HTTP port, SGLang engine metrics from the worker DYN_SYSTEM_PORT. | Modified for the KubeCon NA 2026 EKS sample from ai-dynamo/dynamo v1.6.1 dev/observability/grafana_dashboards/sglang.json (Apache-2.0, NVIDIA): HiCache panels grouped by `pool` (SGLang 0.5.18 label); engine hit rate derived from cached_tokens_total / prompt_tokens_total; panels on metrics outside the Dynamo v1.6.1 metrics catalog removed or replaced; every Dynamo/SGLang selector scoped by the $namespace variable. See dashboards/README.md.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
@@ -1795,7 +1795,7 @@
       "id": 24,
       "type": "timeseries",
       "title": "Total KV Blocks (per model)",
-      "description": "DYN (frontend): dynamo_frontend_model_total_kv_blocks, total KV blocks of a worker serving the model (Dynamo v1.5.1 metrics catalog). Replaces the worker forward-pass gauge, which is not in the catalog and is off when DYN_FORWARDPASS_METRIC_PORT is empty.",
+      "description": "DYN (frontend): dynamo_frontend_model_total_kv_blocks, total KV blocks of a worker serving the model (Dynamo v1.6.1 metrics catalog). Replaces the worker forward-pass gauge, which is not in the catalog and is off when DYN_FORWARDPASS_METRIC_PORT is empty.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"

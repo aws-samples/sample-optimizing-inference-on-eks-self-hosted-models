@@ -9,10 +9,10 @@ Contract pinned here (the script header documents it for the reader):
 * ``scripts/export-allowlist.txt``: one rule per line, ``#`` comments.  ``path`` exports one file, ``dir/`` everything
   under it, ``!path`` / ``!dir/`` marks a path deliberately left out.  The longest matching rule wins.  A tracked path
   that matches no rule makes the script fail (nothing silently ships); a malformed, duplicate or contradictory rule
-  fails too.  docs/ is default-deny (``!docs/`` plus one rule per public docs file or folder): the design log (prefix
-  ``SDD`` = ``sanitize_scan.ALLOWLIST_PREFIX``) stays behind without a public file naming it, as
-  test_design_log_unreferenced.py requires.  That nothing else stays behind unnoticed is pinned on this repository's
-  HEAD below (only the design log and ``EXPORT_TOOLING``, the script and its allowlist).
+  fails too.  docs/ is default-deny (``!docs/`` plus one rule per public docs file or folder): an internal docs tree
+  (``INTERNAL_TREE`` in the fixtures) stays behind.  That nothing else stays behind unnoticed is pinned on this
+  repository's HEAD below: only the trees its allowlist keeps internal with a ``!dir/`` rule of their own
+  (``internal_trees``) and ``EXPORT_TOOLING``, the script and its allowlist.
 * Agent configuration and spec/plan/Task files at any depth (``SCRIPT_REFUSES``) are refused even when a rule would
   export them; they have no rule, so a committed agent-configuration folder fails the run as uncovered.
 * ``<dest>.manifest`` (next to the tree, so the tree holds only public files) lists ``<mode> <sha256> <path>`` per
@@ -46,9 +46,8 @@ SCRIPT = REPO / "scripts" / "export-public.sh"
 ALLOWLIST = REPO / "scripts" / "export-allowlist.txt"
 # /bin/bash is bash 3.2 on macOS: running the script with it keeps the script 3.2 compatible.
 BASH = "/bin/bash" if Path("/bin/bash").is_file() else (shutil.which("bash") or "bash")
-SDD = S.ALLOWLIST_PREFIX  # the design-log prefix, the one tree the export leaves behind
+INTERNAL_TREE = "docs/internal/"  # the internal docs tree of the fixture repositories
 SCRIPT_REFUSES = r"\.claude/|\.kiro/|\.codex/|\.mcp\.json|CLAUDE\.md|AGENTS\.md|spec\.md|plan\.md|Task\.md"
-INTERNAL_RE = re.compile(r"(^|/)(" + re.escape(SDD) + "|" + SCRIPT_REFUSES + ")")  # internal material at any depth
 EXPORT_TOOLING = {"scripts/export-public.sh", "scripts/export-allowlist.txt"}  # maintainer tooling, kept internal
 TREE_HASH_RE = re.compile(r"tree-sha256 ([0-9a-f]{64})")
 ENTRY_RE = re.compile(r"(100644|100755) ([0-9a-f]{64}) (.+)")
@@ -61,8 +60,8 @@ BASE_FILES: dict[str, tuple[str | bytes, int]] = {
     "docs/DEPLOY.md": ("deploy\n", 0o644),
     "docs/static/arch.png": (PNG, 0o644),
     "docs/static/arch.drawio": ("<mxfile/>\n", 0o644),
-    f"{SDD}plan.md": ("internal plan\n", 0o644),
-    f"{SDD}notes.txt": ("internal notes\n", 0o644),
+    f"{INTERNAL_TREE}plan.md": ("internal plan\n", 0o644),
+    f"{INTERNAL_TREE}notes.txt": ("internal notes\n", 0o644),
     "tools/x/run.sh": ("#!/bin/sh\necho x\n", 0o755),
     "tools/x/my file.txt": ("a path with a space\n", 0o644),
 }
@@ -205,7 +204,7 @@ def test_internal_trees_are_excluded_and_docs_static_is_exported(fx: Fixture, tm
     assert files_under(dest) == EXPORTED
     assert set(manifest_paths(dest)) == EXPORTED
     assert (dest / "docs/static/arch.png").read_bytes() == PNG
-    assert not (dest / SDD).exists()
+    assert not (dest / INTERNAL_TREE).exists()
     assert not manifest_path(dest).resolve().is_relative_to(dest.resolve()), "the manifest lives next to the tree"
 
 
@@ -258,7 +257,7 @@ def test_dry_run_lists_every_tracked_path_once_and_writes_nothing(fx: Fixture, t
     assert proc.returncode == 0, out(proc)
     exported, excluded = dry_run_sides(proc)
     assert set(exported) == EXPORTED and len(exported) == len(EXPORTED)
-    assert sorted(excluded) == [f"{SDD}notes.txt", f"{SDD}plan.md"]
+    assert sorted(excluded) == [f"{INTERNAL_TREE}notes.txt", f"{INTERNAL_TREE}plan.md"]
     tracked = [p for p in fx.git("ls-files", "-z").split("\0") if p]
     assert sorted(exported + excluded) == sorted(tracked)
     assert not dest.exists() and not manifest_path(dest).exists()
@@ -276,7 +275,7 @@ def test_docs_are_default_deny(fx: Fixture, tmp_path: Path) -> None:
 
 def test_the_allowlist_is_read_from_the_exported_commit(fx: Fixture, tmp_path: Path) -> None:
     before = fx.run("--dry-run")
-    fx.write("scripts/export-allowlist.txt", BASE_ALLOWLIST + f"{SDD}notes.txt\n", record=False)
+    fx.write("scripts/export-allowlist.txt", BASE_ALLOWLIST + f"{INTERNAL_TREE}notes.txt\n", record=False)
     after = fx.run("--dry-run")
     assert before.returncode == 0 and after.returncode == 0, out(before) + out(after)
     assert dry_run_sides(after) == dry_run_sides(before), "an uncommitted allowlist edit must not change the export"
@@ -285,7 +284,7 @@ def test_the_allowlist_is_read_from_the_exported_commit(fx: Fixture, tmp_path: P
 @pytest.mark.parametrize(
     "allowlist,extra,offender",
     [
-        (BASE_ALLOWLIST.replace("!docs/ ", "docs/ "), None, f"{SDD}plan.md"),
+        (BASE_ALLOWLIST.replace("!docs/ ", "docs/ "), None, f"{INTERNAL_TREE}plan.md"),
         (BASE_ALLOWLIST, "tools/y/.claude/agent.json", "tools/y/.claude/agent.json"),
         (BASE_ALLOWLIST, "tools/y/spec.md", "tools/y/spec.md"),
         (BASE_ALLOWLIST.replace("README.md\n", "README.md\nAGENTS.md\n"), "AGENTS.md", "AGENTS.md"),
@@ -365,7 +364,7 @@ def test_modes_are_644_or_755_whatever_the_umask(fx: Fixture, tmp_path: Path) ->
 
 def test_tree_hash_depends_on_the_exported_content_only(fx: Fixture, tmp_path: Path) -> None:
     first = fx.run(str(tmp_path / "t1"))
-    fx.write(f"{SDD}plan.md", "the design log moved on\n")
+    fx.write(f"{INTERNAL_TREE}plan.md", "the internal tree moved on\n")
     fx.commit("excluded path only")
     second = fx.run(str(tmp_path / "t2"))
     fx.write("README.md", "# public change\n")
@@ -471,15 +470,33 @@ def test_script_header_documents_the_uses_and_the_script_is_clean() -> None:
     assert proc.returncode == 0, proc.stdout
 
 
+def allowlist_rules() -> list[str]:
+    """The rules of this repository's ``scripts/export-allowlist.txt``, comments dropped."""
+    return [ln.split()[0] for ln in ALLOWLIST.read_text(encoding="utf-8").splitlines()
+            if ln.strip() and not ln.lstrip().startswith("#")]
+
+
+def internal_trees() -> tuple[str, ...]:
+    """The trees this repository keeps internal on purpose: its ``!dir/`` rules other than the ``!docs/`` default-deny."""
+    trees = tuple(r[1:] for r in allowlist_rules() if r.startswith("!") and r.endswith("/") and r != "!docs/")
+    assert trees, "scripts/export-allowlist.txt keeps the internal docs tree out with a !dir/ rule of its own"
+    return trees
+
+
+def internal_re(trees: tuple[str, ...]) -> re.Pattern[str]:
+    """Internal material at any depth: the ``trees`` and what the script refuses (``SCRIPT_REFUSES``)."""
+    return re.compile(r"(^|/)(" + "".join(re.escape(t) + "|" for t in trees) + SCRIPT_REFUSES + ")")
+
+
 def test_allowlist_lists_docs_subfolders_explicitly_and_excludes_the_internal_trees() -> None:
     assert ALLOWLIST.is_file(), "scripts/export-allowlist.txt does not exist yet"
-    rules = [ln.split()[0] for ln in ALLOWLIST.read_text(encoding="utf-8").splitlines()
-             if ln.strip() and not ln.lstrip().startswith("#")]
+    rules = allowlist_rules()
     assert "docs/" not in rules, "list the docs subfolders one by one, so a new one cannot ship unreviewed"
     assert {"docs/static/", "README.md", "LICENSE"} <= set(rules)
     assert "!docs/" in rules, "docs/ is default-deny: only the docs listed after it ship"
     assert {f"!{p}" for p in EXPORT_TOOLING} <= set(rules)
-    exporting_internal = [r for r in rules if not r.startswith("!") and INTERNAL_RE.search(r)]
+    internal = internal_re(internal_trees())
+    exporting_internal = [r for r in rules if not r.startswith("!") and internal.search(r)]
     assert not exporting_internal, "no rule exports internal material"
 
 
@@ -501,7 +518,7 @@ def head_export(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, subproc
     return dest, proc
 
 
-def test_head_export_leaves_out_only_the_design_log_and_the_export_tooling(
+def test_head_export_leaves_out_only_the_internal_trees_and_the_export_tooling(
     head_export: tuple[Path, subprocess.CompletedProcess[str]],
 ) -> None:
     """docs/ is default-deny: a new docs file or folder fails here until it is exported or kept internal on purpose."""
@@ -509,10 +526,11 @@ def test_head_export_leaves_out_only_the_design_log_and_the_export_tooling(
     exported = set(manifest_paths(dest))
     head = set(_head_paths())
     assert exported == files_under(dest)
-    unexpected = sorted(head - exported - EXPORT_TOOLING - {p for p in head if p.startswith(SDD)})
+    trees = internal_trees()
+    unexpected = sorted(p for p in head - exported - EXPORT_TOOLING if not p.startswith(trees))
     assert not unexpected, f"left out of the export without a decision (scripts/export-allowlist.txt): {unexpected}"
     assert EXPORT_TOOLING <= head - exported
-    assert not [p for p in exported if INTERNAL_RE.search(p)], "internal material in the export"
+    assert not [p for p in exported if internal_re(trees).search(p)], "internal material in the export"
     assert {"README.md", "LICENSE", "docs/static/architecture.png", "docs/static/architecture.drawio"} <= exported
 
 
@@ -537,10 +555,10 @@ def test_head_export_is_byte_identical_to_the_committed_blobs(
 
 
 def test_head_export_passes_the_sanitize_scan(head_export: tuple[Path, subprocess.CompletedProcess[str]]) -> None:
-    """The scanner's only allowlisted prefix (the design log) is not exported: every exported file must be clean."""
+    """The internal trees (``internal_trees``) are not exported, and every exported file passes the scanner."""
     dest, _ = head_export
     paths = manifest_paths(dest)
-    assert not [p for p in paths if p.startswith(S.ALLOWLIST_PREFIX)]
+    assert not [p for p in paths if p.startswith(internal_trees())]
     # docs/static/architecture.drawio used to be scanned only by test_sanitization_guards: the scanner's e-mail
     # pattern backtracked quadratically on its base64 (~2 min). The look-behind made the scan linear, so the big
     # file is scanned here with every other exported file.

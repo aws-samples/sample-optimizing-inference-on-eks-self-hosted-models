@@ -31,7 +31,7 @@
       }
     ]
   },
-  "description": "KubeCon NA 2026 demo: the recorded panels of spec section 11 for the R (KV-aware routing), D (prefill/decode disaggregation) and O (SGLang HiCache) matrix on one p6-b200. Every Dynamo, SGLang and NIXL query is scoped by $namespace (one DGD per namespace); DCGM and node-exporter panels are scoped by node. The demo-bench tables are the numbers of record; panels are illustrations.",
+  "description": "One row per technique: R (KV-aware routing), D (prefill/decode disaggregation) and O (SGLang HiCache). Every Dynamo, SGLang and NIXL query is scoped by $namespace (one DGD per namespace); DCGM and node-exporter panels are scoped by node.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -55,7 +55,7 @@
       "id": 2,
       "type": "timeseries",
       "title": "Frontend TTFT p50/p95",
-      "description": "Time to first token at the Dynamo frontend, all requests in $namespace. Illustration only: the demo-bench tables over the aiperf window are the numbers of record.",
+      "description": "Time to first token at the Dynamo frontend, all requests in $namespace.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -300,7 +300,7 @@
       "id": 11,
       "type": "timeseries",
       "title": "Engine hit rate per worker",
-      "description": "Token-weighted prefix-cache hit rate per worker pod: rate(sglang:cached_tokens_total) / rate(sglang:prompt_tokens_total), all cache sources. Run-level numbers use increase() over the aiperf window (demo-bench). Query B (per dp_rank) is hidden: enable it once T-OBS-1 confirms the engine exports dp_rank on these counters.",
+      "description": "Token-weighted prefix-cache hit rate per worker pod: rate(sglang:cached_tokens_total) / rate(sglang:prompt_tokens_total), all cache sources. Query B (per dp_rank) is hidden: enable it if the engine exports dp_rank on these counters.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -1070,7 +1070,7 @@
       "id": 23,
       "type": "timeseries",
       "title": "NVLink throughput (DCGM)",
-      "description": "DCGM_FI_PROF_NVLINK_TX_BYTES / RX_BYTES are bytes/s gauges (no rate()), summed per GPU-owning pod on the selected GPU node. With the dcgm-exporter chart default honorLabels=false the workload pod is in exported_pod and pod is the exporter. PROF fields on EKS Auto Mode are (M) in T-OBS-1; query C (hidden) is the DCGM_FI_DEV_NVLINK_BANDWIDTH_TOTAL counter fallback, in raw DCGM units.",
+      "description": "DCGM_FI_PROF_NVLINK_TX_BYTES / RX_BYTES are bytes/s gauges (no rate()), summed per GPU-owning pod on the selected GPU node. With the dcgm-exporter chart default honorLabels=false the workload pod is in exported_pod and pod is the exporter. Query C (hidden) is the DCGM_FI_DEV_NVLINK_BANDWIDTH_TOTAL counter fallback, in raw DCGM units.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -1212,7 +1212,7 @@
       "id": 31,
       "type": "timeseries",
       "title": "Tokens by cache source",
-      "description": "Prompt tokens served from each cache tier (cache_source device / host / storage_<backend>; the \"total\" fallback series is excluded), stacked over the tokens the engine had to compute (prompt minus cached).",
+      "description": "Prompt tokens served from each cache tier (cache_source device / host / storage in SGLang 0.5.21; the \"total\" fallback series is excluded), stacked over the tokens the engine had to compute (prompt minus cached).",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -1396,7 +1396,7 @@
       "id": 33,
       "type": "timeseries",
       "title": "HiCache load-back",
-      "description": "Tokens loaded back from L2 host DRAM to the GPU per worker pod and host pool (SGLang 0.5.18 label pool).",
+      "description": "Tokens loaded back from L2 host DRAM to the GPU per worker pod and host pool (SGLang 0.5.21 label pool).",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -1597,7 +1597,7 @@
       "id": 35,
       "type": "timeseries",
       "title": "Node disk reads (md*)",
-      "description": "node-exporter read throughput, per device, of the NVMe RAID0 (md*) behind /mnt/.ephemeral on the GPU node or, on nodes without a RAID, of the whole nvme disks (on Nitro the EBS root volume is an nvme device too): evidence that L3 hits came from NVMe rather than the page cache (T-HIC-5). Node metrics carry no namespace, so this panel is filtered by the md_instance variable.",
+      "description": "node-exporter read throughput, per device, of the NVMe RAID0 (md*) behind /mnt/.ephemeral on the GPU node or, on nodes without a RAID, of the whole nvme disks (on Nitro the EBS root volume is an nvme device too): evidence that L3 hits came from NVMe rather than the page cache. Node metrics carry no namespace, so this panel is filtered by the md_instance variable.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -1682,7 +1682,7 @@
       "id": 36,
       "type": "timeseries",
       "title": "Cache tier occupancy (L1/L2/L3)",
-      "description": "Per worker pod. L1 device KV pool held by the radix cache = (sglang:kv_used_tokens + sglang:kv_evictable_tokens) / sglang:max_total_num_tokens. L2 host pool = sglang:hicache_host_used_tokens / sglang:hicache_host_total_tokens. L3 (right axis) = tokens written from L2 to L3 storage since the worker started (sglang:backuped_tokens_total): an upper bound, as SGLang 0.5.18 exports no L3 occupancy gauge and neither L3 eviction nor the cache reset is subtracted.",
+      "description": "Per worker pod. L1 device KV pool held by the radix cache = (sglang:kv_used_tokens + sglang:kv_evictable_tokens) / sglang:max_total_num_tokens. L2 host pool = sglang:hicache_host_used_tokens / sglang:hicache_host_total_tokens. L3 (right axis) = tokens written from L2 to L3 storage since the worker started (sglang:backuped_tokens_total): an upper bound, as SGLang 0.5.21 exports no L3 occupancy gauge and neither L3 eviction nor the cache reset is subtracted.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -1824,8 +1824,7 @@
   "tags": [
     "dynamo",
     "sglang",
-    "eks",
-    "kubecon-na-2026"
+    "eks"
   ],
   "templating": {
     "list": [
@@ -1941,7 +1940,7 @@
   },
   "timepicker": {},
   "timezone": "utc",
-  "title": "Dynamo on EKS: R / D / O matrix (KubeCon NA 2026)",
+  "title": "Dynamo on EKS: R / D / O matrix",
   "uid": "dynamo-eks-demo-matrix",
   "version": 1,
   "weekStart": ""

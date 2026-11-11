@@ -1,6 +1,6 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
-"""RED tests: static contract of the model-stager Pod Identity role (the plan-level proof is ``model_stager.tftest.hcl``).
+"""Tests: static contract of the model-stager Pod Identity role (the plan-level proof is ``model_stager.tftest.hcl``).
 
 The staging Job (node-ops/model-stager) needs write access that the read-only ``model-reader`` role of the prefetch Job
 must never get, so ``iam-model-access.tf`` gets a SECOND role, ServiceAccount and Pod Identity association in the file's own
@@ -110,14 +110,17 @@ def _terraform() -> str | None:
     return os.environ.get("TERRAFORM_BIN") or shutil.which("terraform")
 
 
-def test_terraform_test_passes_for_the_model_stager_role() -> None:
-    """Runs the plan-level test (mock providers, no AWS) when a Terraform >= 1.12 and an initialised ``terraform/cluster`` exist."""
+def test_terraform_test_passes_for_the_model_stager_role(terraform_init) -> None:
+    """Runs the plan-level test (mock providers, no AWS) when a Terraform >= 1.12 exists (the ``terraform_init`` fixture initialises ``terraform/cluster`` once)."""
     binary = _terraform()
-    if binary is None or not (CLUSTER / ".terraform").is_dir():
-        pytest.skip("terraform binary or `terraform init -backend=false` in terraform/cluster missing")
+    if binary is None:
+        pytest.skip("terraform binary missing")
     ver = lib_proc.run([binary, "version"], capture_output=True, text=True).stdout
     m = re.search(r"Terraform v1\.(\d+)", ver)
     if not m or int(m.group(1)) < 12:
         pytest.skip(f"Terraform >= 1.12 required, found: {ver.splitlines()[0] if ver else 'none'} (set TERRAFORM_BIN)")
+    init_rc, init_err = terraform_init(binary, CLUSTER)
+    if init_rc != 0:
+        pytest.skip(f"`terraform init -backend=false` in terraform/cluster failed: {init_err}")
     proc = lib_proc.run([binary, "test", "-no-color", "-filter=tests/model_stager.tftest.hcl"], cwd=CLUSTER, capture_output=True, text=True)
     assert proc.returncode == 0, proc.stdout[-4000:] + proc.stderr[-2000:]

@@ -1,6 +1,6 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
-"""Vendored Dynamo ConfigMaps: byte-identical to v1.5.1 apart from header/label."""
+"""Vendored Dynamo ConfigMaps: byte-identical to v1.6.1 apart from header/label."""
 from __future__ import annotations
 
 import re
@@ -30,7 +30,7 @@ def test_dashboards_dir_exists():
     assert (L.DASH / "dynamo").is_dir()
 
 
-def test_body_identical_to_v151(vendored):
+def test_body_identical_to_v161(vendored):
     name, text = vendored
     upstream = L.git_show(L.VENDORED[name])
     norm = lambda t: LABEL_RE.sub("", body(t))

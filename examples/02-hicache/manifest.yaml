@@ -1,0 +1,317 @@
+# Cell S2 | folder examples/02-hicache | namespace s-agg-hic
+# HiCache: the baseline's 8 aggregated TP1 workers, with KV pages also kept in host RAM (L2) and in local files via NIXL (L3).
+# [R] KV router: off   (Frontend env DYN_ROUTER_MODE=round-robin)
+# [O] HiCache: on     (Worker args --enable-hierarchical-cache and --hicache-*, env SGLANG_HICACHE_NIXL_*, volume hicache-l3)
+# [D] PD disaggregation: off (one aggregated Worker service, no --disaggregation-* flags)
+# Guide: docs/optimizations/hicache/README.md
+apiVersion: nvidia.com/v1beta1
+kind: DynamoGraphDeployment
+metadata:
+  labels:
+    app.kubernetes.io/name: q38
+    app.kubernetes.io/part-of: qwen38-matrix
+  name: q38
+  namespace: s-agg-hic
+spec:
+  backendFramework: sglang
+  components:
+  # Frontend: Dynamo's HTTP server; it picks a worker for every request (docs/optimizations/kv-router/README.md)
+  - name: Frontend
+    podTemplate:
+      metadata:
+        annotations:
+          karpenter.sh/do-not-disrupt: "true"
+        labels:
+          app.kubernetes.io/part-of: qwen38-matrix
+      spec:
+        containers:
+        - args:
+          - -m
+          - dynamo.frontend
+          - --http-host
+          - 0.0.0.0
+          - --http-port
+          - "8000"
+          command:
+          - python3
+          env:
+          - name: HF_HUB_OFFLINE
+            value: "1"
+          - name: TRANSFORMERS_OFFLINE
+            value: "1"
+          # [R] off: round-robin, the Frontend rotates through the workers (docs/optimizations/kv-router/README.md)
+          - name: DYN_ROUTER_MODE
+            value: round-robin
+          # runtime image pinned by digest, RUNTIME_IMAGE of versions.env (docs/DEPLOY.md#prerequisites)
+          image: nvcr.io/nvidia/ai-dynamo/sglang-runtime:1.6.1-efa@sha256:bc30725d441e32406f2ee237bb3f0b720b105ca3b7f0c43b3d68918a23a5a954
+          imagePullPolicy: IfNotPresent
+          name: main
+          ports:
+          # HTTP API; in the cluster the guides call http://q38-frontend:8000 (docs/optimizations/kv-router/README.md)
+          - containerPort: 8000
+            name: http
+          resources:
+            limits:
+              memory: 16Gi
+            requests:
+              cpu: "8"
+              memory: 16Gi
+        # GPU node pool gpu-b200-cb (p6-b200.48xlarge on a Capacity Block); another pool: docs/DEPLOY.md#prerequisites
+        nodeSelector:
+          karpenter.sh/nodepool: gpu-b200-cb
+        # tolerates the nvidia.com/gpu NoSchedule taint of the GPU pools (terraform/cluster/modules/gpu-pools/main.tf)
+        tolerations:
+        - effect: NoSchedule
+          key: nvidia.com/gpu
+          operator: Exists
+    replicas: 1
+    # Dynamo runtime version (versions.env); without it admission reads the image tag (docs/DEPLOY.md#prerequisites)
+    runtimeVersionOverride: 1.6.1
+    type: frontend
+  # Worker: 8 aggregated SGLang workers, one GPU each (TP1), serving Qwen/Qwen3.8-27B-FP8
+  # [D] off: one aggregated Worker service, no PD split into two services
+  - name: Worker
+    podTemplate:
+      metadata:
+        annotations:
+          karpenter.sh/do-not-disrupt: "true"
+        labels:
+          app.kubernetes.io/part-of: qwen38-matrix
+      spec:
+        containers:
+        - args:
+          # script: raise the locked-memory (-l) and open-file (-n) limits if allowed (bash: help ulimit), then exec
+          # python3 -m dynamo.sglang with the flags below as "$@" (see command)
+          - |
+            set -euo pipefail
+            ulimit -l unlimited || true
+            ulimit -n 1048576 || true
+            exec python3 -m dynamo.sglang "$@"
+          - dynamo.sglang
+          # model and the Hugging Face commit staged and prefetched to the node (docs/DEPLOY.md steps 4 and 5)
+          - --model-path
+          - Qwen/Qwen3.8-27B-FP8
+          - --revision
+          - 017b9c7af6b5689d5dd426a76e0bc077eb5ca20a
+          - --served-model-name
+          - Qwen/Qwen3.8-27B-FP8
+          - --tp-size
+          - "1"
+          # the KV router block size follows --page-size (docs/optimizations/kv-router/README.md)
+          - --page-size
+          - "64"
+          - --kv-cache-dtype
+          - fp8_e4m3
+          - --mem-fraction-static
+          - "0.85"
+          - --context-length
+          - "131072"
+          - --attention-backend
+          - trtllm_mha
+          - --mamba-radix-cache-strategy
+          - extra_buffer
+          # the guides read sglang:* metrics on port 9090 (docs/optimizations/hicache/README.md)
+          - --enable-metrics
+          # publishes the KV events (ZMQ, port 5557) the KV router indexes; set in both router modes (kv-router guide)
+          - --kv-events-config
+          - '{"publisher":"zmq","topic":"kv-events","endpoint":"tcp://*:5557"}'
+          - --host
+          - 0.0.0.0
+          # adds POST /engine/flush_cache on the system port 9090 (docs/optimizations/hicache/README.md#reset-between-runs)
+          - --engine-route
+          - flush_cache:tm
+          # [O] on: HiCache, KV pages also in pinned host RAM (L2) and in files through NIXL (L3) (docs/optimizations/hicache/README.md)
+          - --enable-hierarchical-cache
+          # L2 size: 200 GB (10^9 B) of pinned host memory per engine (one rank per engine)
+          - --hicache-size
+          - "200"
+          # page_first (L2 memory layout) and kernel (GPU to L2 copy backend): SGLang's defaults
+          - --hicache-mem-layout
+          - page_first
+          - --hicache-io-backend
+          - kernel
+          # write_through, SGLang's default: every access is written back to the next tier
+          - --hicache-write-policy
+          - write_through
+          # L3 through NIXL; the SGLANG_HICACHE_NIXL_* env below sets its plugin, I/O mode and directory
+          - --hicache-storage-backend
+          - nixl
+          # timeout: stop waiting for an L3 prefetch after a time limit
+          - --hicache-storage-prefetch-policy
+          - timeout
+          # adds POST /engine/clear_hicache_storage on the system port 9090: deletes this pod's L3 files (hicache guide, "Reset between runs")
+          - --engine-route
+          - clear_hicache_storage:tm
+          # [D] off: no PD flags at the end of these args (aggregated engine)
+          # /bin/bash -c: the first args item is the script, the second its $0, the rest "$@" (man bash, option -c)
+          command:
+          - /bin/bash
+          - -c
+          env:
+          # the pod's name; HiCache cells name each pod's L3 directory after it (docs/optimizations/hicache/README.md)
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+          # the weights prefetched to the node's NVMe (docs/DEPLOY.md step 5)
+          - name: HF_HUB_CACHE
+            value: /models/hub
+          - name: HF_HOME
+            value: /compile-cache/hf-home
+          - name: HF_HUB_OFFLINE
+            value: "1"
+          - name: TRANSFORMERS_OFFLINE
+            value: "1"
+          # empty string: the dashboard panels fed by forward-pass metrics stay empty (dashboards/README.md)
+          - name: DYN_FORWARDPASS_METRIC_PORT
+            value: ""
+          - name: DYN_SGL_ALLOW_TOP_LOGPROBS
+            value: "1"
+          - name: XDG_CACHE_HOME
+            value: /compile-cache/xdg
+          - name: TRITON_CACHE_DIR
+            value: /compile-cache/triton
+          - name: TORCHINDUCTOR_CACHE_DIR
+            value: /compile-cache/inductor
+          - name: FLASHINFER_WORKSPACE_BASE
+            value: /compile-cache/flashinfer
+          - name: SGLANG_CACHE_DIR
+            value: /compile-cache/sglang
+          # [O] on: the L3 settings of the nixl storage backend (docs/optimizations/hicache/README.md#what-the-examples-set)
+          # NIXL plugin POSIX: L3 as files on the node's local disk
+          - name: SGLANG_HICACHE_NIXL_BACKEND_PLUGIN
+            value: POSIX
+          # 0: buffered I/O instead of SGLang's default O_DIRECT; an L3 hit can come from the page cache (hicache guide, "Pitfalls")
+          - name: SGLANG_HICACHE_NIXL_USE_DIRECT_IO
+            value: "0"
+          - name: SGLANG_HICACHE_NIXL_BACKEND_STORAGE_DIR
+            value: /kvcache/l3
+          # [D] off: no SGLANG_DISAGGREGATION_NIXL_BACKEND, FI_* (libfabric/EFA) or EFA LD_LIBRARY_PATH env
+          # runtime image pinned by digest, RUNTIME_IMAGE of versions.env (docs/DEPLOY.md#prerequisites)
+          image: nvcr.io/nvidia/ai-dynamo/sglang-runtime:1.6.1-efa@sha256:bc30725d441e32406f2ee237bb3f0b720b105ca3b7f0c43b3d68918a23a5a954
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            failureThreshold: 60
+            httpGet:
+              path: /live
+              port: system
+            periodSeconds: 5
+            timeoutSeconds: 4
+          name: main
+          ports:
+          # the worker's system port 9090: /live, /metrics and /engine/* routes (docs/optimizations/hicache/README.md)
+          - containerPort: 9090
+            name: system
+          # [O] on: memory request and limit leave room for the 200 GB pinned L2 pool (docs/optimizations/hicache/README.md#what-it-costs)
+          # [D] off: no EFA device; the PD workers request one each
+          resources:
+            limits:
+              memory: 224Gi
+              nvidia.com/gpu: "1"
+            requests:
+              cpu: "16"
+              memory: 200Gi
+              nvidia.com/gpu: "1"
+          # [D] off: the aggregated Worker adds IPC_LOCK and SYS_RESOURCE; the PD workers run without them (pd-disaggregation guide)
+          securityContext:
+            capabilities:
+              add:
+              - IPC_LOCK
+              - SYS_RESOURCE
+            runAsGroup: 0
+            runAsUser: 0
+          startupProbe:
+            failureThreshold: 240
+            httpGet:
+              path: /live
+              port: system
+            periodSeconds: 10
+            timeoutSeconds: 5
+          volumeMounts:
+          - mountPath: /models
+            name: models
+            readOnly: true
+          - mountPath: /compile-cache
+            name: compile-cache
+          # [O] on: L3 directory /kvcache/l3, the subdirectory of hicache-l3 named after the pod (subPathExpr)
+          - mountPath: /kvcache/l3
+            name: hicache-l3
+            subPathExpr: $(POD_NAME)
+          workingDir: /workspace
+        # weights-gate: holds the worker until the prefetched weights are on the node (docs/DEPLOY.md step 5)
+        initContainers:
+        - args:
+          # fails if /mnt/.ephemeral is under EPHEMERAL_MIN_GIB, then waits up to WEIGHTS_WAIT_TIMEOUT_S for the marker
+          - |
+            set -euo pipefail
+            root=/mnt/.ephemeral
+            marker="$root/models/hub/models--Qwen--Qwen3.8-27B-FP8/.done"
+            dev=$(df -P "$root" | awk 'NR==2 {print $1}')
+            size_gib=$(( $(df -Pk "$root" | awk 'NR==2 {print $2}') / 1048576 ))
+            echo "ephemeral device=$dev size=${size_gib}GiB"
+            if [ "$size_gib" -lt "$EPHEMERAL_MIN_GIB" ]; then
+              echo "FATAL: $root (${size_gib}GiB) is not the instance store" >&2
+              exit 1
+            fi
+            deadline=$(( $(date +%s) + WEIGHTS_WAIT_TIMEOUT_S ))
+            until grep -qx "revision=$MODEL_REVISION" "$marker" 2>/dev/null; do
+              if [ "$(date +%s)" -ge "$deadline" ]; then
+                echo "FATAL: no marker $marker for revision $MODEL_REVISION after ${WEIGHTS_WAIT_TIMEOUT_S}s" >&2
+                exit 1
+              fi
+              echo "waiting for $marker"
+              sleep 15
+            done
+            echo "weights ready: $(tr '\n' ' ' < "$marker")"
+          command:
+          - /bin/bash
+          - -c
+          env:
+          # the revision the .done marker must name (the same commit as --revision)
+          - name: MODEL_REVISION
+            value: 017b9c7af6b5689d5dd426a76e0bc077eb5ca20a
+          - name: EPHEMERAL_MIN_GIB
+            value: "10000"
+          - name: WEIGHTS_WAIT_TIMEOUT_S
+            value: "1800"
+          image: nvcr.io/nvidia/ai-dynamo/sglang-runtime:1.6.1-efa@sha256:bc30725d441e32406f2ee237bb3f0b720b105ca3b7f0c43b3d68918a23a5a954
+          imagePullPolicy: IfNotPresent
+          name: weights-gate
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            runAsGroup: 0
+            runAsUser: 0
+          volumeMounts:
+          - mountPath: /mnt/.ephemeral
+            name: ephemeral
+            readOnly: true
+        nodeSelector:
+          karpenter.sh/nodepool: gpu-b200-cb
+        tolerations:
+        - effect: NoSchedule
+          key: nvidia.com/gpu
+          operator: Exists
+        volumes:
+        - hostPath:
+            path: /mnt/.ephemeral/models
+            type: Directory
+          name: models
+        - hostPath:
+            path: /mnt/.ephemeral
+            type: Directory
+          name: ephemeral
+        - emptyDir: {}
+          name: compile-cache
+        # [O] on: hicache-l3, the L3 root of this namespace; DirectoryOrCreate creates it if nothing exists at the path (https://kubernetes.io/docs/concepts/storage/volumes/#hostpath)
+        - hostPath:
+            path: /mnt/.ephemeral/hicache-l3/qwen38-matrix/s-agg-hic
+            type: DirectoryOrCreate
+          name: hicache-l3
+    replicas: 8
+    runtimeVersionOverride: 1.6.1
+    # /dev/shm size of each worker pod; PD needs it for NIXL (docs/optimizations/pd-disaggregation/README.md)
+    sharedMemorySize: 16Gi
+    type: worker

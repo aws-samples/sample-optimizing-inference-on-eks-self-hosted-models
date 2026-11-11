@@ -6,10 +6,10 @@
 #
 # The EKS default is effectively privileged, so every namespace sets
 # enforce/warn/audit explicitly:
-#   privileged -> scenario namespaces (s-*), node-ops (GPU-node Jobs/DaemonSets
-#                 on hostPath /mnt/.ephemeral) and monitoring (node-exporter,
-#                 dcgm-exporter with SYS_ADMIN)
-#   baseline   -> dynamo-system, bench, stage-mocker (warn/audit at restricted)
+#   privileged -> scenario namespaces (s-*), node-ops (the GPU-node prefetch
+#                 Job and the helper pod, on hostPath /mnt/.ephemeral) and
+#                 monitoring (node-exporter, dcgm-exporter with SYS_ADMIN)
+#   baseline   -> dynamo-system (warn/audit at restricted)
 ################################################################################
 
 locals {
@@ -34,8 +34,6 @@ locals {
     "node-ops"      = "privileged"
     "monitoring"    = "privileged"
     "dynamo-system" = "baseline"
-    "bench"         = "baseline"
-    "stage-mocker"  = "baseline"
   }
 }
 

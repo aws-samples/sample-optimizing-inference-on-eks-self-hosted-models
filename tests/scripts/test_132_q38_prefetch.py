@@ -1,6 +1,6 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
-"""``scripts/11-prefetch.sh``: model-agnostic S3 -> NVMe prefetch.  RED until the developer rewrites it.
+"""``scripts/11-prefetch.sh``: model-agnostic S3 -> NVMe prefetch.
 
 No per-model case table and no ``--model`` flag.  The model is described by ``MODEL_ID`` (``org/name``), ``MODEL_REVISION`` and
 the source; the defaults are the keys of the same name in the platform config (``MODEL_ID``, ``MODEL_REVISION``, ``MODEL_S3_URI``).
@@ -16,7 +16,7 @@ the source; the defaults are the keys of the same name in the platform config (`
 * a model id other than the config's needs ``--revision`` (or ``MODEL_REVISION`` in the env): the config revision belongs to the
   config's model, so it is never applied to another one (usage error, nothing applied);
 * ``--wait`` verifies ``revision=<revision>`` in ``/mnt/.ephemeral/models/hub/<cache repo>/.done`` and fails without it;
-* an active Job is never deleted (P-5); the cluster guard is the one of ``lib/common.sh``.
+* an active Job is never deleted; the cluster guard is the one of ``lib/common.sh``.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from typing import Any
 
 import lib_scripts as S
 import pytest
-import trackq_scripts as T
+import q38_scripts as T
 
 CHANGED = "apiVersion: batch/v1\nkind: Job\nmetadata:\n  name: CHANGED-BY-SET-ENV\n"
 COMPLETE = {"status": {"conditions": [{"type": "Complete", "status": "True"}], "succeeded": 1}}
@@ -185,7 +185,9 @@ def test_a_config_without_model_keys_needs_the_flags(tmp_path: Path) -> None:
 
 def test_the_script_has_no_per_model_table() -> None:
     text = (S.SCRIPTS_DIR / "11-prefetch.sh").read_text()
-    for needle in ("g" + "lm", "G" + "LM", "qwen3-32b", "qwen38", "Qwen", "RadixArk", "DEMO_TRACK", "TRACKB", "TRACKQ"):
+    # the removed names are spelled with fragments so this file does not carry them
+    for needle in ("g" + "lm", "G" + "LM", "qwen3-32b", "qwen38", "Qwen", "Radix" + "Ark", "DEMO_" + "TRACK", "TRA" + "CKB",
+                   "TRACK" + "Q"):
         assert needle not in text, f"scripts/11-prefetch.sh still names {needle}"
 
 

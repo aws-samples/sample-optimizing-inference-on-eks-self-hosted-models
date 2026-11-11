@@ -1,7 +1,7 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
 #
-# RED tests: the optional Grafana edge (grafana-edge.tf) on a full ROOT plan. Providers are mocked (mock_provider),
+# Tests: the optional Grafana edge (grafana-edge.tf) on a full ROOT plan. Providers are mocked (mock_provider),
 # so nothing touches AWS or a cluster.
 #
 # Contract: the edge is off by default. Turned on, CloudFront reaches Grafana through a VPC origin and an internal

@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: MIT-0
 """Helpers for the manifest contract tests (render, CRD validation, flag parsing).
 
-The contract encoded here covers the scenario matrix and topologies, the scenario manifests, the toggle and
-cache-reset mechanics, the harness fairness rules and the acceptance gates.  Nothing in this module weakens an expectation:
+The contract encoded here covers the scenario matrix and topologies, the scenario manifests (the eight written
+``examples/<folder>/manifest.yaml``), the cache-reset mechanics, the harness fairness rules and the acceptance gates.  Nothing in this module weakens an expectation:
 a missing directory or file is reported as a failure, never skipped.
 """
 
@@ -22,20 +22,14 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MANIFESTS = Path(os.environ.get("MANIFESTS_DIR", REPO_ROOT / "manifests"))
-TRACK_Q = "track-q-qwen38"
+EXAMPLES = REPO_ROOT / "examples"
 
-# Checkout of the Dynamo repository at v1.5.1 (the DGD CRD and recipes are read from it): DYNAMO_REPO, default a sibling
+# Checkout of the Dynamo repository at v1.6.1 (the DGD CRD and recipes are read from it): DYNAMO_REPO, default a sibling
 # directory named "dynamo".  Tests that need it skip with a reason when it is absent (see ``require_dynamo_repo``).
 DYNAMO_REPO = Path(os.environ.get("DYNAMO_REPO", REPO_ROOT.parent / "dynamo"))
-CRD_GIT_REF = "v1.5.1:deploy/operator/config/crd/bases/nvidia.com_dynamographdeployments.yaml"
+CRD_GIT_REF = "v1.6.1:deploy/operator/config/crd/bases/nvidia.com_dynamographdeployments.yaml"
 
-# The stage-mocker image (manifests/stage-mocker).
-PINNED_IMAGE = (
-    "nvcr.io/nvidia/ai-dynamo/sglang-runtime:1.5.1"
-    "@sha256:37badffd83eb334aee9d06fb442e36fc3c963314336c92622c78ac5c037d514d"
-)
-
-# Single platform config source (account, region, buckets, ECR host): manifests/config/platform.env.
+# Single platform config source (account, region, buckets): manifests/config/platform.env.
 # Read here so no test pins a region/account literal.  A missing file yields sentinels that match nothing.
 CONFIG_ENV = MANIFESTS / "config" / "platform.env"
 
@@ -56,10 +50,6 @@ def platform_config() -> dict[str, str]:
 def cfg(key: str) -> str:
     """Config value, or an unmatchable sentinel when the config source is missing/incomplete."""
     return platform_config().get(key) or f"<platform.env:{key}-missing>"
-
-
-# Default source of node-ops/job-model-prefetch.yaml: the config model (11-prefetch.sh overrides it per run).
-S3_SOURCE = f"{cfg('MODEL_S3_URI')}/"
 
 # topology overlay -> namespace
 TOPOLOGIES: dict[str, str] = {
@@ -82,14 +72,6 @@ WORKER_TYPES = ("worker", "prefill", "decode")
 def overlay_path(rel: str) -> Path:
     """Return the absolute path of a manifests-relative kustomize directory."""
     return MANIFESTS / rel
-
-
-def topology_rel(topology: str) -> str:
-    return f"{TRACK_Q}/overlays/{topology}"
-
-
-def frontend_rel(mode: str) -> str:
-    return f"{TRACK_Q}/frontends/{mode}"
 
 
 @functools.lru_cache(maxsize=None)
@@ -116,6 +98,18 @@ def render_text(rel: str) -> str:
 def render(rel: str) -> list[dict[str, Any]]:
     """Render ``manifests/<rel>`` and return the parsed documents."""
     return [d for d in yaml.safe_load_all(render_text(rel)) if d]
+
+
+def example_folders() -> list[str]:
+    """The folders of ``examples/`` that hold a ``manifest.yaml``."""
+    return sorted(p.parent.name for p in EXAMPLES.glob("*/manifest.yaml"))
+
+
+def example_docs(folder: str) -> list[dict[str, Any]]:
+    """Parse ``examples/<folder>/manifest.yaml`` (a written file, applied as is)."""
+    path = EXAMPLES / folder / "manifest.yaml"
+    assert path.is_file(), f"missing examples/{folder}/manifest.yaml"
+    return [d for d in yaml.safe_load_all(path.read_text()) if d]
 
 
 def dgds(docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -185,7 +179,7 @@ def host_path_volumes(comp: dict[str, Any]) -> list[dict[str, Any]]:
 def require_dynamo_repo() -> None:
     """Skip (with a reason) when the Dynamo checkout the CRD is read from is not available."""
     if not (DYNAMO_REPO / ".git").exists():
-        pytest.skip("needs a Dynamo checkout at v1.5.1: set DYNAMO_REPO (default: a sibling directory named 'dynamo')")
+        pytest.skip("needs a Dynamo checkout at v1.6.1: set DYNAMO_REPO (default: a sibling directory named 'dynamo')")
 
 
 def crd_text() -> str:
@@ -198,7 +192,7 @@ def crd_text() -> str:
     )
     if proc.returncode != 0:
         pytest.fail(
-            f"cannot extract the v1.5.1 DGD CRD from {DYNAMO_REPO}: {proc.stderr.strip()}"
+            f"cannot extract the v1.6.1 DGD CRD from {DYNAMO_REPO}: {proc.stderr.strip()}"
         )
     return proc.stdout
 
@@ -444,25 +438,5 @@ def deep_without_env(obj: Any, env_name: str) -> Any:
 
 
 def all_render_dirs() -> list[str]:
-    """Every manifests-relative directory the contract requires."""
-    rels = [topology_rel(t) for t in TOPOLOGIES]
-    rels += [frontend_rel("rr"), frontend_rel("kv")]
-    rels += ["bench", "node-ops"]
-    return rels
-
-
-def assert_job_deadline_is_sane(job_spec: dict[str, Any], tokens: list[str]) -> None:
-    """P-15 policy for a matrix/sweep driver Job's ``activeDeadlineSeconds``.
-
-    Absent is allowed (the driver's own ``--deadline-hours`` / ``--deadline-at`` bound it).  A present value is the
-    absolute Job bound, so it must be a positive integer and must never undercut the driver's own graceful
-    ``--deadline-hours`` window (the Job would be killed before the driver can abort cleanly).  A short value such as a
-    12 h bound for an 11 h driver window is legitimate; the old blanket ">= 24 h" rule is not required.
-    """
-    ad = job_spec.get("activeDeadlineSeconds")
-    if ad is None:
-        return
-    assert isinstance(ad, int) and not isinstance(ad, bool) and ad > 0, f"activeDeadlineSeconds must be a positive int, got {ad!r}"
-    if "--deadline-hours" in tokens:
-        hours = float(tokens[tokens.index("--deadline-hours") + 1])
-        assert ad >= hours * 3600, f"activeDeadlineSeconds {ad} undercuts --deadline-hours {hours} ({hours * 3600:.0f} s)"
+    """Every manifests-relative kustomize directory the contract requires."""
+    return ["node-ops"]

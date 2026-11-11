@@ -1,7 +1,7 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
 #
-# RED test: golden equivalence of the p6-b200 + capacity-block render with the LIVE objects of the tested cluster.
+# Test: golden equivalence of the p6-b200 + capacity-block render with the LIVE objects of the tested cluster.
 #
 # fixtures/live-gpu-b200-cb.json was captured read-only from the running cluster by
 # fixtures/capture_live_gpu_pool.py (kubectl get nodeclass,nodepool gpu-b200-cb -o json), keeping only `spec`,

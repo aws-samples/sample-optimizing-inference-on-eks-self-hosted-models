@@ -1,6 +1,0 @@
-# The namespace (PSA baseline, warn restricted) is created by Terraform.
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
-namespace: stage-mocker
-resources:
-  - dgd.yaml

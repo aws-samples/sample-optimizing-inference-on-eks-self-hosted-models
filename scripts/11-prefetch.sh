@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: MIT-0
 # 11-prefetch.sh [--model-id ORG/NAME] [--revision SHA] [--force] [--wait]
 #
-# S3 -> NVMe weights prefetch on the GPU node (spec 8.4 step 2, T-PLAT-3). Submits the
+# S3 -> NVMe weights prefetch on the GPU node. Submits the
 # node-ops helper pod and Job/model-prefetch, then returns: the copy, its timing (recorded in
 # the .done marker) and the skip-if-present check all happen in the Job, in-cluster.
 # The workers' init gate verifies the marker later. A previous
@@ -129,28 +129,22 @@ log "model=$model_id source=$source_uri region=$MODEL_BUCKET_REGION revision=$re
 
 # ---------------------------------------------------------------- submit (in-cluster work)
 # A Job's pod template is immutable: replace the previous run, but only a finished one. A copy
-# that is still running is never deleted (P-5), not even with --force: the run is refused
+# that is still running is never deleted, not even with --force: the run is refused
 # before anything is applied.
 replace_finished_job model-prefetch
 kube apply --server-side --field-manager=demo-prefetch -k "$node_ops" \
   -l app.kubernetes.io/name=ephemeral-shell </dev/null
-# Chain through temp files, chained through temp files, not piped (the stub kubectl does
+# Chain through temp files, not piped (the stub kubectl does
 # not read stdin and a pipe under `set -o pipefail` races on BrokenPipe).
 work="$(mktemp -d "${TMPDIR:-/tmp}/prefetch.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 kubectl kustomize "$node_ops" </dev/null >"$work/rendered.yaml"
+# The Job's MODEL_S3_URI and AWS_REGION are placeholders, so `set env` always changes the Job and
+# prints it.
 kube set env --local -f "$work/rendered.yaml" -c prefetch \
   "MODEL_S3_URI=$source_uri" "MODEL_REVISION=$revision" "MODEL_CACHE_REPO=$cache_repo" \
   "AWS_REGION=$MODEL_BUCKET_REGION" "FORCE=$force" -o yaml >"$work/final.yaml"
-# `set env --local` prints nothing when every value already equals the Job's (the config
-# model's defaults, P-30): the render is then submitted as is (its ephemeral-shell Pod was applied just
-# above with the same field manager, so re-applying it changes nothing).
-job_file="$work/final.yaml"
-if ! grep -q '[^[:space:]]' "$job_file"; then
-  log "step=set-env changed=0 (values equal the Job defaults): submitting the rendered Job"
-  job_file="$work/rendered.yaml"
-fi
-kube apply --server-side --field-manager=demo-prefetch -f "$job_file" </dev/null
+kube apply --server-side --field-manager=demo-prefetch -f "$work/final.yaml" </dev/null
 log "result=submitted job=$NODE_OPS_NS/model-prefetch"
 if [ "$follow" -eq 0 ]; then
   echo "submitted: kubectl logs -n $NODE_OPS_NS -f job/model-prefetch (marker: $marker)"

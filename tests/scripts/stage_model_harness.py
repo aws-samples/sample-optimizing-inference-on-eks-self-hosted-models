@@ -227,14 +227,13 @@ class Box:
         kubectl.write_text(FAKE_KUBECTL.replace("__PYTHON__", os.sys.executable))
         kubectl.chmod(0o755)
         self.platform_env = root / "platform.env"
-        self.sample_env = root / "sample.env"
-        self.platform_env.write_text(f"AWS_REGION=us-east-2\nMODEL_BUCKET={BUCKET}\n")
-        self.write_sample()
+        self.write_platform()
 
-    def write_sample(self, **over: str | None) -> None:
-        vals = {"MODEL_ID": MODEL, "MODEL_REVISION": REVISION, "MODEL_S3_PREFIX": PREFIX, "MODEL_S3_URI": URI, **over}
+    def write_platform(self, **over: str | None) -> None:
+        """Write the one generated env file: the bucket, the region and the model path (None drops a key)."""
+        vals = {"AWS_REGION": "us-east-2", "MODEL_BUCKET": BUCKET, "MODEL_ID": MODEL, "MODEL_REVISION": REVISION, "MODEL_S3_PREFIX": PREFIX, "MODEL_S3_URI": URI, **over}
         lines = ["# GENERATED (test)"] + [f"{k}={v}" for k, v in vals.items() if v is not None]
-        self.sample_env.write_text("\n".join(lines) + "\n")
+        self.platform_env.write_text("\n".join(lines) + "\n")
 
     def env(self, **over: str | None) -> dict[str, str]:
         base = {k: v for k, v in os.environ.items() if k not in ("HF_TOKEN", "MODEL_ID", "MODEL_REVISION", "MODEL_S3_URI", "MODEL_S3_PREFIX", "STAGE_IMAGE")}
@@ -245,7 +244,6 @@ class Box:
                 "TMPDIR": str(self.tmp),
                 "HOME": str(self.root),
                 "PLATFORM_ENV": str(self.platform_env),
-                "SAMPLE_ENV": str(self.sample_env),
                 "STAGE_IMAGE": IMAGE,
                 "KUBE_CONTEXT": "qa-context",
                 "NO_COLOR": "1",

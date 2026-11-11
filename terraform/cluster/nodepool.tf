@@ -10,9 +10,9 @@
 #   - requirement keys use the eks.amazonaws.com/instance-* labels
 #   - no class is named `default` (Auto Mode owns it when a built-in pool is on)
 #
-# cpu-demo hosts every non-GPU workload (Prometheus, Grafana, Dynamo operator,
-# frontends, bench, stage mocker). It is pinned to the primary AZ (default: the
-# first GPU AZ) so frontends and the bench pod share the GPU node AZ. Disruption is fully off
+# cpu-demo hosts the non-GPU workloads (Prometheus, Grafana, Dynamo operator,
+# model staging Job). It is pinned to the primary AZ (default: the
+# first GPU AZ) so its pods share the GPU node AZ. Disruption is fully off
 # (WhenEmpty + consolidateAfter Never + budgets nodes "0"): demo nodes are never
 # consolidated or drift-replaced; expireAfter 480h stays below the Auto Mode
 # 21-day maximum node lifetime. Empty nodes are therefore NOT reclaimed
@@ -40,8 +40,7 @@ resource "kubectl_manifest" "node_class_cpu_demo" {
     }
     spec = merge(local.primary_az_node_class_network, {
       role = module.eks.node_iam_role_name
-      # Room for the large SGLang/Dynamo runtime images pulled on CPU nodes
-      # (frontend pre-pull, preflight).
+      # Room for the large SGLang/Dynamo runtime images pulled on CPU nodes.
       ephemeralStorage = {
         size       = "256Gi"
         iops       = 3000

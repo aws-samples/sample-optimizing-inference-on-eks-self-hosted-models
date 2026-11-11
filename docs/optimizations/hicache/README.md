@@ -1,224 +1,229 @@
-# O: KV cache offloading with SGLang HiCache
+# KV cache offloading with SGLang HiCache
 
-HiCache adds host RAM (L2) and local NVMe (L3) below the GPU KV pool (L1). A prefix that no longer fits in HBM gets loaded back instead of prefilled again. In the matrix this is factor **O**.
+HiCache is SGLang's hierarchical KV cache. When the KV of a reused prefix no longer fits in GPU memory, the engine
+keeps copies in host RAM (L2) and in files on the node's local disk (L3), and loads them back instead of computing the
+prefill again (SGLang's [HiCache design][d-why] page, "design" below). In this sample HiCache is on in
+[`02-hicache`](../../../examples/02-hicache/), [`04-kv-router-hicache`](../../../examples/04-kv-router-hicache/),
+[`06-pd-hicache`](../../../examples/06-pd-hicache/) and [`07-all-three`](../../../examples/07-all-three/). The SGLang
+statements below are read from the [SGLang `v0.5.21`](https://github.com/sgl-project/sglang/tree/v0.5.21) source, the
+SGLang version of the runtime image ([`versions.env`](../../../versions.env)); the Dynamo statements from
+[Dynamo `v1.6.1`](https://github.com/ai-dynamo/dynamo/tree/v1.6.1).
 
-> **Status (2026-10-24).** Track Q, `Qwen/Qwen3.8-27B-FP8` at TP1 on one `p6-b200.48xlarge`. Under load O is the largest TTFT lever: in W3-16K at 25 req/s it takes the continuation TTFT p50 from 20.3 s to 0.60 s on its own. It does not fix ITL in aggregated serving, so it meets the SLO only together with R and D. W2 (n=3, pre-registered, ~100K-token contexts): O alone is inside the noise (1.02x goodput) and the pre-registered H-O failed on TTFT. Correctness first: restores of this hybrid model's KV from L2 and L3 were 16/16 on SGLang 0.5.21 (the public image) and on 0.5.22 (the build of the results), against 15/16 L3 on 0.5.18 ([Versions](#9-versions)).
+## How it works
 
-| | |
-|---|---|
-| Engine | SGLang `HiRadixCache`: 0.5.21 in the public runtime image, 0.5.22 in the derived build of the runs of record ([Versions](#9-versions)) |
-| Dynamo role | Dynamo passes the flags through unchanged and makes the router tier-aware through KV events (v1.5.1 `docs/fern/pages/developer-guide/knowledge-base/modular-components/backends/sglang/hicache.md:46,56-75`) |
-| Replaces | Dynamo KVBM, which is deprecated (v1.5.1 `docs/fern/pages/reference/general/releases/known-issues.mdx:53`) |
-| Cells | S2, S4 (aggregated, every engine), S6, S7 (disaggregated, prefill only) |
-| Components | `manifests/track-q-qwen38/components/hicache-agg` (L2 200 GB per engine) and `components/hicache-prefill` (L2 400 GB per prefill engine) |
-| Example | [`examples/02-hicache`](../../../examples/02-hicache/) (cell S2). Paired with the other techniques in [`examples/05-kv-router-hicache`](../../../examples/05-kv-router-hicache/) (S4, R+O) and [`examples/07-pd-hicache`](../../../examples/07-pd-hicache/) (S6, O+D) |
-| Numbers | [`docs/results/w3-16k-cells.csv`](../../results/w3-16k-cells.csv) (W3-16K, n=1) |
+| Tier | Medium | Private to | Size |
+|---|---|---|---|
+| L1 | GPU memory | one engine | the engine's KV pool, `sglang:max_total_num_tokens` |
+| L2 | pinned host RAM | one engine ([design][d-scope]) | `--hicache-size` GB per rank; it overrides `--hicache-ratio` ([memory.py][s-size]) |
+| L3 | files on the node's local disk, through the NIXL `POSIX` plugin | one pod in this sample (one directory per pod) | free space on that filesystem ([Pitfalls](#pitfalls)) |
 
-Other docs: [repo README](../../../README.md) · [R: KV-aware router](../kv-router/README.md) · [O: HiCache](README.md) (this page) · [D: PD disaggregation](../pd-disaggregation/README.md) · [results](../../results/README.md) · [dashboards](../../../dashboards/README.md)
+- A request is matched against L1 and L2 first. For the rest SGLang asks L3 and, when the L3 hit is longer than a
+  threshold (256 tokens by default), prefetches it into L2 ([design][d-prefetch]). When the prefetch stops, the
+  prefill uses what was fetched together with L1 and L2 ([design][d-after]).
+- The examples use `write_through`, SGLang's default write policy ([memory.py][s-policy]): every access is written
+  back to the next tier ([design][d-wt]); by our reading L2 then also holds what L1 holds. Dynamo counts the
+  capacity that L2 adds under `write_through` as host tokens minus device tokens ([capacity.py][dy-cap]). Writes from
+  L2 to L3 skip blocks already in L3 ([design][d-skip]).
+- Dynamo passes the HiCache flags to SGLang unchanged ([hicache.md][dy-pass]). Its support matrix lists KV events for
+  SGLang's GPU and host tiers and no disk tier ([offloading-support-matrix.md][dy-matrix]); how the KV router credits
+  L2 is in the [KV-aware routing guide](../kv-router/README.md). Dynamo's KV block manager (KVBM), deprecated in
+  Dynamo v1.5.0 ([deprecations.mdx][dy-kvbm]), is not used: `grep -ci kvbm examples/*/manifest.yaml` prints `0` for
+  every file.
 
----
+## What the examples set
 
-## 1. Tiers and data movement
+`grep -n -i hicache examples/02-hicache/manifest.yaml` lists the lines, and the command of
+[examples/README.md](../../../examples/README.md) on `02-hicache` shows that only the namespace (`s-agg-hic`) and the
+Worker change.
 
-```mermaid
-flowchart TB
-  subgraph POD["SGLang engine pod (TP1): L1 and L2 are private to the engine"]
-    direction TB
-    L1["L1 · GPU HBM<br/>FP8 KV pool + mamba state slots, sized by --mem-fraction-static"]
-    L2["L2 · pinned host RAM<br/>--hicache-size GB per engine (200 agg, 400 PD prefill)"]
-  end
-  L3["L3 · node NVMe · NIXL POSIX plugin, buffered I/O<br/>hostPath /mnt/.ephemeral/hicache-l3/qwen38-matrix/&lt;namespace&gt;, mounted at /kvcache/l3, one dir per pod<br/>no KV events: the router never sees L3"]
-  RT["Dynamo KV router (Frontend)<br/>sees L1 + L2 only"]
+| Setting | Value | What it does |
+|---|---|---|
+| `--enable-hierarchical-cache` | set | HiCache on |
+| `--hicache-size` | `200`; `400` on the prefill workers of 06 and 07 | GB (10^9 B) of L2 per rank ([design][d-size]); one rank per engine here (`--tp-size 1`) |
+| `--hicache-mem-layout`, `--hicache-io-backend` | `page_first`, `kernel` | SGLang's defaults ([memory.py][s-layout]) |
+| `--hicache-write-policy` | `write_through` | see above |
+| `--hicache-storage-backend` | `nixl` | L3 through NIXL |
+| `--hicache-storage-prefetch-policy` | `timeout` | stop waiting for an L3 prefetch after a time limit ([design][d-timeout]) |
+| `--engine-route clear_hicache_storage:tm` | set | adds `/engine/clear_hicache_storage` on the worker's system port ([reference-guide.md][dy-route]) |
+| `SGLANG_HICACHE_NIXL_BACKEND_PLUGIN` | `POSIX` | NIXL file plugin ([nixl_utils.py][s-plugins]) |
+| `SGLANG_HICACHE_NIXL_USE_DIRECT_IO` | `"0"` | buffered I/O; SGLang's default is O_DIRECT ([environ.py][s-env]) |
+| `SGLANG_HICACHE_NIXL_BACKEND_STORAGE_DIR` | `/kvcache/l3` | L3 directory in the container ([hicache_nixl.py][s-dir]) |
+| volume `hicache-l3` | hostPath `/mnt/.ephemeral/hicache-l3/qwen38-matrix/<namespace>`, mounted with `subPathExpr: $(POD_NAME)` | one directory per pod |
+| memory request / limit | `200Gi` / `224Gi`; `386Gi` / `410Gi` with 400 GB; `64Gi` / `128Gi` without HiCache | room for the pinned L2 ([What it costs](#what-it-costs)) |
 
-  L1 -->|"backup GPU → host (write_through)<br/>sglang:hicache_backup_tokens_total / _bytes_total"| L2
-  L2 -->|"load-back host → GPU<br/>sglang:load_back_tokens_total / _bytes_total"| L1
-  L2 -->|"write host → L3 (async)<br/>sglang:backuped_tokens_total"| L3
-  L3 -->|"prefetch L3 → host<br/>sglang:prefetched_tokens_total"| L2
-  L1 -.->|"KV events store / remove (GPU)"| RT
-  L2 -.->|"KV events store / remove (CPU_PINNED), credit x 0.75"| RT
+- `04-kv-router-hicache` is 02 with `DYN_ROUTER_MODE=kv` on the Frontend, the only differing non-comment line.
+- `06-pd-hicache` and `07-all-three` run HiCache on the 4 prefill workers only, one of the two PD setups in SGLang's
+  [best practices][bp-pd]; their decode workers carry no HiCache flag. Eight engines with 200 GB (02, 04) and four
+  with 400 GB (06, 07) have the same 1,600 GB of L2.
+
+## When it helps and when it does not
+
+- It can help when requests reuse long prefixes (multi-turn chats, shared documents) whose KV no longer fits in L1
+  ([design][d-why]). A larger L2 gives a higher hit rate, but not linearly: once the reused prefixes fit, more L2 adds
+  little ([design][d-note]).
+- Under `write_through`, an L2 no larger than L1 adds no capacity; SGLang then logs
+  `host pool (<N> tokens) is smaller than the device pool` at start ([base.py][s-warn]).
+- L1 and L2 belong to one engine and L3 to one pod here. With round-robin (02, 06) a turn that lands on another engine
+  misses its cached prefix; the KV router (04, 07) favours the engine that holds it
+  ([KV-aware routing guide](../kv-router/README.md)).
+- A prompt with no reused prefix has nothing to load, and an L3 hit below the threshold is not prefetched. When a
+  load-back or an L3 prefetch is faster than recomputing on your GPU is not tested here.
+- Under load a request can be admitted without what L3 holds for it. SGLang re-issues the L3 lookup of a queued
+  request a limited number of times; past that cap the request is admitted with whatever the device holds
+  ([memory.py][s-retry]) and SGLang logs
+  `HiCache storage prefetch reissue cap reached ... the request is admitted without further L3 lookups`
+  ([scheduler.py][s-reissue]). Observed by us once, with a variant of `07-all-three` on one p5en.48xlarge node (not
+  published): the prefill engines logged this warning at the highest concurrency we ran.
+
+## What it costs
+
+- **Pinned host RAM**: `--hicache-size` GB per engine, allocated at start. SGLang checks it against the host memory
+  the container may still use (bounded by its cgroup limits, minus a 10 GiB reserve) and stops with
+  `Not enough host memory available` if it does not fit ([base.py][s-budget]), so the pod memory limit must cover the
+  pool plus the process. `--hicache-size` counts 10^9 B and Kubernetes `Gi` counts 2^30 B ([memory units][k8s-mem]):
+  200 GB is 186.3 GiB (`python3 -c 'print(200e9/2**30)'`).
+- **Local disk**: L3 sits under `/mnt/.ephemeral`, like the model weights (see the `hostPath` volumes of the
+  manifest).
+- **Copy traffic**: under `write_through` each new block is copied from GPU to L2, then from L2 to L3 ([design][d-wt]).
+
+## Check that it works
+
+Boot log of one worker (container `main`):
+
+```
+kubectl --context "$KUBE_CONTEXT" -n s-agg-hic logs <worker-pod> -c main | grep -E 'hierarchical KV host pool|hierarchical Mamba cache|smaller than the device pool'
 ```
 
-| Tier | Medium | Size knob | Scope | Router | Hit label `cache_source` |
-|---|---|---|---|---|---|
-| L1 | GPU HBM | `--mem-fraction-static 0.85`: 2,100,224 FP8 KV tokens and 401 mamba slots per engine (E1 boot log) | per engine | yes, `store(GPU)` | `device` |
-| L2 | pinned host RAM | `--hicache-size` GB per engine (overrides `--hicache-ratio`): 3,213,760 KV tokens at 200 GB (E1 boot log) | per engine | yes, `store(CPU_PINNED)`, credited at `--router-host-cache-hit-weight` 0.75 | `host` |
-| L3 | node NVMe via NIXL POSIX | free space under the hostPath | per pod (`subPathExpr: $(POD_NAME)`) | no: "no separate disk tier" (v1.5.1 `router/offloading-support-matrix.md:17`) | `storage_HiCacheNixl` |
+- `Allocating kv hierarchical KV host pool: <N> tokens, <X> GB host memory.` is the host KV pool: the L2 of the
+  attention KV, `<N>` tokens ([base.py][s-kvlog]).
+- `Allocating <Y> GB host memory for hierarchical Mamba cache (layout=page_first).` is the host pool of the Mamba
+  state. The model of the examples mixes `full_attention` and `linear_attention` layers (`layer_types` in its
+  [config.json][hf-config]), so SGLang splits `--hicache-size` between the two pools in proportion to their GPU pools
+  ([hybrid_pool_assembler.py][s-split], [mamba.py][s-mamba]): `<X>` plus `<Y>` is about `--hicache-size`, and L2
+  holds fewer KV tokens than `--hicache-size` alone suggests.
+- `... host pool (<N> tokens) is smaller than the device pool ...` means L2 adds nothing under `write_through`.
 
-- There is no NVMe-to-GPU path (this is not GDS). L3 data always goes through L2: prefetch, then load-back.
-- `--router-disk-cache-hit-weight` has no effect, because SGLang HiCache with nixl emits no disk-tier events.
-- **Hybrid model.** Qwen3.8 keeps per-request mamba state next to the attention KV. `--hicache-size` is shared between the host KV pool and a host mamba-state pool, so the KV tokens per GB are lower than on a dense model (on the pre-block test, 80 GB became 42.17 GB of KV and 37.87 GB of mamba state). The write policy must be `write_through` and the layout `page_first` (or `page_first_direct`), which is what Track Q sets.
-- **Measured restore latency** (E1, 48K-token prompts, derived image): cold prefill 2.21 s, GPU hit 0.56 s, L2 restore 0.57 s, L3 restore 1.60 s.
+Observed by us on one p5en.48xlarge node, with the examples applied with only the node pool name changed (not
+published): every worker of 02 and 04 and every prefill worker of 06 and 07 printed the first two lines and not the
+third. The PD workers of 06 and 07 were later changed to run unprivileged and without the GPU pin; whether this boot
+log was taken on that form was not checked. For what was run unprivileged, see the
+[PD guide](../pd-disaggregation/README.md).
 
-## 2. Where it runs in Track Q
+Metrics on the worker's system port 9090:
 
-| Topology (`manifests/track-q-qwen38/topologies/…`) | Namespace | Cells | HiCache on | L2 per engine | Memory request / limit |
-|---|---|---|---|---|---|
-| `t-agg` | `s-agg` | S0, S1 | none | none | 64Gi / 128Gi per worker |
-| `t-agg-hic` | `s-agg-hic` | S2, S4 | all 8 agg workers | 200 GB (8 × 200 GB = 1.6 TB) | 200Gi / 224Gi per worker |
-| `t-dis` | `s-dis` | S3, S5 | none | none | prefill 64Gi / 128Gi, decode 64Gi / 64Gi |
-| `t-dis-hic` | `s-dis-hic` | S6, S7 | the 4 prefill workers only | 400 GB (4 × 400 GB = 1.6 TB) | prefill 386Gi / 410Gi, decode 64Gi / 64Gi |
-
-- **Host budget parity.** Every O cell has the same total L2 (1.6 TB), so agg and PD O cells compare like for like. The decode workers never run HiCache.
-- Both components append the same flag set to the engine core and add the L3 volume; the topology overlay sets the hostPath per namespace.
-
-## 3. Flags and env
-
-| Setting | Value in Track Q | Source |
-|---|---|---|
-| `--enable-hierarchical-cache` | set | `components/hicache-agg/patch.yaml`, `components/hicache-prefill/patch.yaml` |
-| `--hicache-size` | `200` (agg), `400` (PD prefill), GB = 10^9 B per engine | same |
-| `--hicache-mem-layout` / `--hicache-io-backend` | `page_first` / `kernel` | same |
-| `--hicache-write-policy` | `write_through` | same |
-| `--hicache-storage-backend` | `nixl` | same |
-| `--hicache-storage-prefetch-policy` | `timeout` | same |
-| `--engine-route clear_hicache_storage:tm` | HiCache roles only, so the reset can empty L3 before every run | same |
-| `SGLANG_HICACHE_NIXL_BACKEND_PLUGIN` | `POSIX` | same |
-| `SGLANG_HICACHE_NIXL_USE_DIRECT_IO` | `"0"`: buffered I/O (O_DIRECT is unsafe for L3, section 8) | same |
-| `SGLANG_HICACHE_NIXL_BACKEND_STORAGE_DIR` | `/kvcache/l3` | same |
-| `POD_NAME` + `subPathExpr: $(POD_NAME)` | one L3 dir per pod | base env + component |
-| `--engine-route flush_cache:tm` | every engine | `base/add-worker.yaml` |
-
-To see the rendered result offline: `kubectl kustomize manifests/track-q-qwen38/cells/S2 | grep -nE 'hicache|HICACHE|kvcache|memory:'`, or read `examples/02-hicache/diff-vs-baseline.diff`.
-
-## 4. Sizing
-
-### 4.1 Under write_through, L2 adds only what exceeds L1
-
-With `write_through`, every block in L1 is also in L2 (inclusive), so unique capacity is `max(L1, L2)`:
-
-| Policy | Unique tokens per engine | Extra over L1 alone |
-|---|---|---|
-| `write_through` (used here) | `max(L1, L2)` | `L2 − L1`, or 0 when L2 ≤ L1 |
-| `write_back` | `L1 + L2` | `L2` |
-
-- Sources: `tools/demo_bench/src/demo_bench/domain/kv_sizing.py:125-136` (`unique_tokens`) and Dynamo v1.5.1 `components/src/dynamo/sglang/capacity.py:185-190` ("write-back adds the disjoint host pool, write-through subtracts its device mirror").
-- When L2 is too small, SGLang warns at boot: `HiCache kv host pool (<N> tokens) is smaller than the device pool (<M> tokens);L2 cache effectiveness is reduced.`
-
-### 4.2 Track Q on one p6-b200 node
-
-| Quantity | Per engine | Per node |
-|---|---|---|
-| L1 device KV (E1 boot log, M) | 2,100,224 tokens | 16.8M tokens (8 engines) |
-| L2 host KV at 200 GB (E1 boot log, M) | 3,213,760 tokens | 25.7M tokens (8 agg engines; the same 1.6 TB host budget in PD) |
-| L2 beyond L1 under write_through (agg, arithmetic) | ≈ 1.1M tokens | ≈ 8.9M tokens |
-| W3-16K live working set (INFERRED, workload design) | | 4.0-7.7M tokens at 10 req/s; mean 18.8M, peak 24.7M at 32 req/s |
-
-The W3 rates were chosen so that the 32 req/s working set exceeds the node's GPU KV and stays within its host L2: that is the regime where O should matter.
-
-### 4.3 Host RAM and pod memory
-
-| Item | Value | Where |
-|---|---|---|
-| Pinned host memory per HiCache engine | 200 GB (agg) or 400 GB (PD prefill) | `--hicache-size` |
-| HiCache worker request / limit | 200Gi / 224Gi (agg); 386Gi / 410Gi (PD prefill); non-HiCache 64Gi / 128Gi | the two components, `base/add-worker.yaml` |
-| Node | 2 TiB RAM on `p6-b200.48xlarge`; the PD prefill size was fitted to the node allocatable with the decode pods | `components/hicache-prefill/patch.yaml` |
-
-## 5. Evidence (W3-16K, n=1)
-
-**Labels.** W3-16K has n=1: one run per cell and rate, no noise floor, no CI. It is not pooled with W2 (100K-token contexts, 0.5 req/s, n=3, pre-registered), which holds the results of record. r50 was inconclusive and is excluded. The SLO is absolute and was fixed before any W3 data: continuation TTFT ≤ 1 s, ITL ≤ 25 ms (mean per request), cold TTFT ≤ 2 s. Every W3 number below comes from [`docs/results/w3-16k-cells.csv`](../../results/w3-16k-cells.csv); "ITL" is `itl_req_p50_ms`, the median over requests of each request's mean ITL. Tier shares are full-run engine counters (populate included); the window hit is from the client usage.
-
-**At 25 req/s:**
-
-| Cell | R O D | Turns in SLO | Continuation TTFT p50 | ITL p50 | Turns with ITL ≤ 25 ms | Window hit | Cached by tier: GPU / L2 / L3 (% of prompt) |
-|---|---|---|---|---|---|---|---|
-| S0 | - - - | 0% | 20.3 s | 61 ms | 1.3% | 20% | 22.6 / 0 / 0 |
-| S2 | - O - | 2.5% | 0.60 s | 44 ms | 4.5% | 44% | 21.9 / 9.4 / 10.5 |
-| S4 | R O - | 32% | 0.40 s | 28 ms | 33.9% | 54% | 22.4 / 23.6 / 4.9 |
-| S6 | - O D | 21% | 2.2 s | 12 ms | 100% | 57% | 22.5 / 17.9 / 12.2 |
-| S7 | R O D | 90% | 0.34 s | 13 ms | 100% | 71% | 23.2 / 39.9 / 3.0 |
-
-- **O alone (S2 vs S0)** cuts the continuation TTFT p50 from 20.3 s to 0.60 s; S2 completes 24.2 of the 25.5 req/s offered against 21.2 for S0, and its largest prefill queue is 147 against 1,270. Its window hit is 44% (S0 20%). But only 2.5% of its turns meet the SLO, because its ITL is 44 ms.
-- **O is the largest TTFT lever at 25 req/s:** each O edge of the cube (S2 vs S0, S4 vs S1, S6 vs S3) divides the continuation TTFT p50 by about 34 to 44 (x0.02-x0.03).
-- **At 10 req/s** every cell meets the SLO and O alone changes nothing visible (S2 0.29 s vs S0 0.28 s). **At 32 req/s** every cell saturates, S7 included: S2 44.1 s, S4 11.7 s, S6 52.8 s. S7 is the only cell with some goodput left (12.2% of turns, TTFT p50 3.47 s over the window), and its per-minute continuation TTFT p50 rises from 1.1 s to 20.9 s across the window (`docs/results/w3-16k-per-minute.csv`).
-
-**Source of the figures.** The data shipped with this sample is W3-16K only: [`docs/results/w3-16k-cells.csv`](../../results/w3-16k-cells.csv) and [`docs/results/w3-16k-per-minute.csv`](../../results/w3-16k-per-minute.csv), one run per cell and rate (n=1), method in [`workloads/w3-16k/METHODOLOGY.md`](../../../workloads/w3-16k/METHODOLOGY.md). The W2 figures of this guide (n=3 per cell: the runs of the plans `plan-e4` to `plan-e6` in [`plans/w2-long-context`](../../../plans/w2-long-context/), with the SLO calibrated by `plan-e3`) and its E1 figures (n=1) were measured with the derived SGLang 0.5.22 build ([Versions](#9-versions)). They, and the earlier gates the guide cites, are not in the shipped data: they are unpublished internal measurements whose per-cell data is not published, so they cannot be reproduced from this repository, and each W2 figure below without its raw values carries the marker (unpublished internal measurement).
-
-**W2, the pre-registered contrasts (n=3, results of record).** O alone (S2 vs S0): goodput 1.02x (0.264 vs 0.260 turns/s), inside the noise. H-O (O under the KV router, S4 vs S1) failed on TTFT, ÷1.03 (unpublished internal measurement) against ÷2 pre-registered, while its hit criteria passed: +17.2 points (unpublished internal measurement), and L2 + L3 served 49% of the cached tokens (unpublished internal measurement). Across the factorial O is the largest main effect on goodput, 1.31x (unpublished internal measurement), and O × D the largest interaction, 1.27x (unpublished internal measurement). In S7, host L2 served 87% of the cached tokens (unpublished internal measurement), that is 54.5% of the prompt tokens (unpublished internal measurement), and the storage tier 0.8% of the prompt tokens (unpublished internal measurement).
-
-**Correctness (E1, a 16-prompt restore probe, before the matrix).** On the derived 0.5.22 image, L2 and L3 restores returned identical `cached_tokens`, identical answers and identical top-1 tokens in 16/16 (|Δ logprob| 0.0). On SGLang 0.5.18 one of 16 L3 restores was dropped and recomputed.
-
-## 6. When it helps / when it does not
-
-**Adoption order: R -> O -> D.** O is the second step: it costs pinned host memory, node NVMe, a worker restart and a correctness check of your image on your model, but it is the step that fixes TTFT once the live working set outgrows the GPU KV. With R underneath (S4) it reaches 32% of turns in the SLO at 25 req/s; the ITL bound then needs D.
-
-| Condition | Effect |
-|---|---|
-| **Working set above the GPU KV, within L2 (+ L3), under load** | Helps most. Reloading a prefix replaces recomputing it, so the prefill stays below its knee: S2 TTFT p50 0.60 s vs 20.3 s for S0 at 25 req/s. INFERRED: the gain is the recompute saved, visible in the shorter prefill queue (147 vs 1,270). |
-| **ITL in aggregated serving** | Not fixed. S2 44 ms and S4 28 ms, both above the 25 ms bound, against 12-13 ms for the PD cells with O (S6, S7). INFERRED: load-backs and prefill chunks still share each GPU with the decode steps; only D separates them. |
-| **Working set within the GPU KV** | No gain: every revisit already hits on the GPU (10 req/s: S2 0.29 s vs S0 0.28 s). HiCache only adds host copies and pinned memory. |
-| **Round-robin on long contexts** | Little gain: L1, L2 and L3 are private to the engine or pod, and a moved turn lands where its prefix is not. W2: S2 ≈ S0 (1.02x). With R and D the prefix is found (S7: L2 serves 40% of the prompt tokens at 25 req/s). |
-| **L2 ≤ L1 under write_through** | L2 mirrors L1 and adds nothing (section 4.1). |
-| **Cheap prefill or no reuse** | Short prompts, short shared prefixes or unique prompts: a load-back or an L3 prefetch can cost as much as recomputing. |
-| **Wrong SGLang version** | On this hybrid model 0.5.18 dropped 1 of 16 L3 restores (recomputed), and 0.5.21 corrupted restores on another hybrid model in an image gate ([Versions](#9-versions)): measure restore correctness before measuring speed. |
-
----
-
-## 7. How to customise and measure
-
-**Before applying any worker-flag change, delete the live DGD.** On one full GPU node the operator creates a new worker while the old one keeps the GPUs, and the rollout deadlocks. Frontend-only changes are safe.
-
-### 7.1 Customise
-
-| Goal | How |
-|---|---|
-| L2 size | Change `"200"` in `components/hicache-agg/patch.yaml` or `"400"` in `components/hicache-prefill/patch.yaml`, and the memory request / limit next to it (it must cover the pinned pool plus the process). Keep the totals equal across agg and PD if you compare them. Keep the L2 tokens per engine clearly above the L1 tokens (section 4.1); check that the boot warning is absent. |
-| Re-render | `scripts/render-track-q.sh` and `scripts/render-examples.sh` (offline), then the manifest tests: the committed `rendered/S<n>.yaml` are drift-tested. |
-| Prefetch policy | `--hicache-storage-prefetch-policy` `best_effort`, `wait_complete` or `timeout` (Track Q): when an L3 prefetch stops waiting. |
-| Write policy, layout | `write_back` makes L2 disjoint (`L1 + L2`) but hybrid models need `write_through`; `--hicache-mem-layout` and `--hicache-io-backend` must change as a pair (`page_first` + `kernel`, or `page_first_direct` + `direct`). |
-| L2 only | Remove the storage-backend flags, the three `SGLANG_HICACHE_NIXL_*` env, the L3 volume and mount and the `clear_hicache_storage` route from the component. The driver's reset then has no L3 to clear. |
-
-Policy semantics are documented in SGLang's [HiCache design](https://docs.sglang.io/docs/advanced_features/hicache_design) and [best practices](https://docs.sglang.io/docs/advanced_features/hicache_best_practices). Do not set `DYN_SHARED_CACHE_TYPE` or `--shared-cache-type hicache`: they need a Mooncake shared pool (v1.5.1 `hicache.md:147,187`).
-
-### 7.2 Metrics
+```
+kubectl --context "$KUBE_CONTEXT" -n s-agg-hic exec <worker-pod> -c main -- curl -s localhost:9090/metrics | grep -E '^sglang:(cached_tokens_total|prompt_tokens_total|hicache_host_|load_back_tokens_total|hicache_backup_tokens_total|backuped_tokens_total|prefetched_tokens_total)'
+```
 
 | Metric | Meaning |
 |---|---|
-| `sglang:cached_tokens_total{cache_source}` | Hits by tier: `device` = L1, `host` = L2, `storage_HiCacheNixl` = L3. `total` is a per-request fallback, so filter `cache_source!="total"` for per-tier views. |
-| `sglang:prompt_tokens_total` | Hit-rate denominator |
-| `sglang:load_back_tokens_total`, `_bytes_total` | L2 → L1 |
-| `sglang:backuped_tokens_total` | L2 → L3 writes, cumulative: an upper bound on L3 occupancy |
-| `sglang:prefetched_tokens_total` | L3 → L2 reads |
-| `sglang:hicache_host_used_tokens` / `sglang:hicache_host_total_tokens` | L2 occupancy |
-| `node_disk_read_bytes_total` | NVMe reads (T-HIC-5) |
-| `dynamo_component_router_kv_hit_rate_sum` / `_count` | Router predicted hit (L1 + L2 only, `kv` arm only) |
+| `sglang:cached_tokens_total{cache_source}` | reused prompt tokens: `device` L1, `host` L2, `storage` L3; `total` only when there is no breakdown ([metrics_collector.py][s-cached]) |
+| `sglang:hicache_backup_tokens_total`, `sglang:load_back_tokens_total` | GPU to L2, L2 to GPU ([metrics_collector.py][s-l2]) |
+| `sglang:backuped_tokens_total`, `sglang:prefetched_tokens_total` | L2 to L3, L3 to L2 ([metrics_collector.py][s-l3]) |
+| `sglang:hicache_host_used_tokens`, `sglang:hicache_host_total_tokens` | L2 occupancy, in KV tokens ([metrics_collector.py][s-host]) |
 
-- Engine hit rate = `increase(cached)/increase(prompt)` over the replay window. Never use `sglang:cache_hit_rate`: it is a last-batch gauge.
-- The L3 counters appear only when SGLang's storage metrics are on; if the L3 panels are empty, check this first.
-- Dashboards: `dashboards/demo/matrix.json` row "O: HiCache tiers (L1 device, L2 host, L3 storage)", `dashboards/demo/compare.json` (HiCache tiers per arm), and `dashboards/sglang/sglang.json` row "HiCache (RAM/disk tiers)". See [dashboards/README.md](../../../dashboards/README.md).
+The hit rate of each tier over a window `w`, summed over the workers the selectors match, is
+`sum by (cache_source) (increase(sglang:cached_tokens_total{cache_source!="total"}[w])) / on() group_left sum(increase(sglang:prompt_tokens_total[w]))`;
+`sglang:cache_hit_rate` is a gauge of the most recent value ([metrics_collector.py][s-gauge]), not a count over a
+window. The HiCache rows of `dashboards/demo/matrix.json` and `dashboards/sglang/sglang.json` plot these series
+except `sglang:hicache_backup_tokens_total` ([dashboards/README.md](../../../dashboards/README.md)).
 
-### 7.3 Reset between runs, and the L3 caveat
+## Reset between runs
 
-- The matrix driver resets every engine before each run: `POST /engine/flush_cache` on every engine and `POST /engine/clear_hicache_storage` on the HiCache roles, then it verifies the reset with canary requests (T-RTR-2) and refuses to run if a repeat still hits.
-- By hand: `kubectl --context "$KUBE_CONTEXT" -n s-agg-hic exec <worker-pod> -c main -- curl -sS -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:9090/engine/clear_hicache_storage`.
-- **Buffered L3.** With O_DIRECT off, L3 writes and reads go through the Linux page cache, charged to the pod's memory cgroup, so an L3 "hit" can be a DRAM read. Report L3 as the "storage tier (page cache or NVMe)" unless T-HIC-5 holds over the window, with B = KV bytes per token:
+```
+kubectl --context "$KUBE_CONTEXT" -n s-agg-hic exec <worker-pod> -c main -- curl -sS -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:9090/engine/flush_cache
+kubectl --context "$KUBE_CONTEXT" -n s-agg-hic exec <worker-pod> -c main -- curl -sS -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:9090/engine/clear_hicache_storage
+```
 
-  ```
-  increase(node_disk_read_bytes_total{device=~"md.*"}) ≥ 0.8 × increase(sglang:cached_tokens_total{cache_source=~"storage_.*"}) × B
-  ```
+- `flush_cache` (every worker of every example sets `--engine-route flush_cache:tm`) empties L1 and L2 and emits a
+  KV event that clears the worker's blocks, but it does not touch L3 ([unified_radix_cache.py][s-reset]). It does
+  nothing while requests are pending and logs `Cache not flushed because there are pending requests`
+  ([scheduler.py][s-flush]). After a flush the router predicts no hit for a prefix the worker still serves from L3
+  ([TROUBLESHOOTING](../../TROUBLESHOOTING.md#router-does-not-see-the-l3-tier)).
+- `clear_hicache_storage` (only the HiCache workers set `--engine-route clear_hicache_storage:tm`: every worker of 02
+  and 04, the prefill workers of 06 and 07) deletes every file under this pod's L3 directory ([scheduler.py][s-clear],
+  [nixl_utils.py][s-nixlclear]).
+- Observed by us once, with a variant of `07-all-three` on one p5en.48xlarge node (not published): both calls
+  returned `"success":true` on the prefill workers. With L3 holding the files of earlier runs, `clear_hicache_storage`
+  kept the engines busy long enough that one of them answered its readiness and liveness probes with 503 for a few
+  seconds (no restart).
+- Dynamo says to treat each configured route as remote administrative access and to restrict network access to the
+  system server ([reference-guide.md][dy-admin]).
 
-## 8. Pitfalls
+## Pitfalls
 
-| Pitfall | Symptom | Fix / rule |
-|---|---|---|
-| **NIXL telemetry + L3 nixl** | Scheduler dies at boot: `duplicate agent name 'hicache_nixl_<uuid>'` then `RuntimeError: Failed to create telemetry exporter: prometheus` | No process with `--hicache-storage-backend nixl` may have `NIXL_TELEMETRY_ENABLE` truthy. The Track Q HiCache roles run without NIXL telemetry. |
-| **O_DIRECT for L3** | Restores of misaligned pools fail or come back as zeros: on another model, whose host page was not a multiple of the 512 B block, O_DIRECT writes failed with `EINVAL`, left 0-byte L3 objects, and the restores read them back as zeroed KV | Keep `SGLANG_HICACHE_NIXL_USE_DIRECT_IO="0"` as env, as Track Q does; do not switch O_DIRECT on through `--hicache-storage-backend-extra-config` (on 0.5.18 its `use_direct_io` key was read with `bool()`, so `"false"` meant True). |
-| **No flush between runs** | The previous run warms the next one | Reset and verify before every run (section 7.3). |
-| L3 directories pile up | Every DGD re-create gets new pod names, so new `subPathExpr` directories | Wipe `/mnt/.ephemeral/hicache-l3/qwen38-matrix/<namespace>` only while the namespace has 0 worker pods. The matrix driver empties it when it tears a topology down (over a million files after one W2 S7 run). |
-| **Host memory OOM** | `OOMKilled` | Pinned memory = `--hicache-size` per engine, outside the GPU. Raise the size only together with the memory request and limit. |
-| Router blind to L3 | Router predicted hit below the engine hit | Expected: L3 emits no KV events. Report the engine hit. |
-| Hybrid host pool | Fewer host KV tokens than `--hicache-size` suggests | The mamba-state host pool takes part of it. Read both from the boot log: `Allocating kv hierarchical KV host pool: <N> tokens, <X> GB host memory` and `Allocating <Y> GB host memory for hierarchical Mamba cache`. |
-| Page size | 1-token KV events | Set `--page-size 64` (Track Q does). |
+- **A buffered L3 hit can come from RAM.** Without O_DIRECT (which tries to minimize cache effects, [open(2)][open2])
+  reads normally go through the Linux page cache, so a `storage` hit may be served from memory. Compare it with the
+  "Node disk reads (md*)" panel of `dashboards/demo/matrix.json` over the same window.
+- **L3 directories pile up.** Each pod writes to a directory named after itself; `clear_hicache_storage` and SGLang's
+  L3 cleaner work only on that directory ([hicache_nixl.py][s-cleanerdirs]), and no script here removes the others
+  (`git grep hicache-l3 -- scripts terraform` finds nothing). By our reading, directories of deleted pods stay under
+  `/mnt/.ephemeral/hicache-l3/qwen38-matrix/<namespace>` until the node goes away. We did not test deleting them.
+- **The L3 cleaner measures the whole filesystem.** When the filesystem of the L3 directory is 80% used, SGLang deletes
+  this pod's oldest L3 files until it is below 70% ([nixl_cleaner.py][s-cleaner]); it is on by default
+  ([nixl_utils.py][s-cleaneron]). By our reading of the `hostPath` volumes, that filesystem also holds the model
+  weights.
+- **`--shared-cache-type hicache` on the Frontend is for a Mooncake shared pool** ([hicache.md][dy-mooncake]), not
+  for the per-pod files used here.
 
----
+## What we did not verify
 
-## 9. Versions
+- Restore correctness: the sample ships no check that KV restored from L2 or L3 gives the same output as recomputing
+  it, on this model and image. Check it on yours before you rely on it.
+- Speed: when a load-back or an L3 prefetch beats recomputing, and whether L3 hits come from NVMe or from the page
+  cache under load.
+- NIXL telemetry (`NIXL_TELEMETRY_ENABLE`) together with the `nixl` storage backend; the manifests leave it unset.
+- A way to delete the L3 directories of deleted pods.
+- That the SGLang build in the image matches the `v0.5.21` tag line for line: the SGLang statements come from the tag.
+- The hit-rate query on a live Prometheus: we evaluated it only with `promtool test rules` on synthetic series.
+- The `kubectl` commands of this page were run by us on one p5en.48xlarge node only: `kubectl logs` in `s-agg-hic`
+  and `s-dis-hic`, the `kubectl exec ... curl` commands in `s-dis-hic`. The `grep`, `diff` and `python3` checks were
+  run on this repository.
 
-- **Runtime of the sample.** The public NGC image `nvcr.io/nvidia/ai-dynamo/sglang-runtime:1.6.0-efa@sha256:d574951b0dbd037bdcaabe121431a83cd047a5c106cb243fe6f2f97f2e456cd2` (the `RUNTIME_IMAGE` of `versions.env`): Dynamo 1.6.0, SGLang 0.5.21, NIXL 1.5.0, EFA 1.50.0. Deployed with the Dynamo operator chart 1.5.1; every component sets `runtimeVersionOverride: "1.6.0"`.
-- **Runs of record (every Track Q result: W2, W3 and the demo).** Model `Qwen/Qwen3.8-27B-FP8` (revision `017b9c7a…`), TP1, 8 GPUs of one `p6-b200.48xlarge`. Every number in this guide was measured with a derived SGLang 0.5.22 build on a Dynamo 1.6.0 nightly, which is not distributed; the cells and flags are the ones of this repository, only the image differs. The workers set `DYN_FORWARDPASS_METRIC_PORT=""`: without it the derived 0.5.22 build crashed on the first decode, and the cells keep it with the public image.
-- **Restore correctness: measured on 0.5.18 (15/16 L3), 0.5.21 (16/16 L2 and L3 on Qwen3.8 TP1, bs=1, RTX PRO 6000) and 0.5.22 (16/16) on L2 and L3 of Qwen3.8 TP1 on B200.** The probe sends 16 restore prompts of about 48K tokens and compares each restore with the GPU hit (`cached_tokens`, tier, top-1 token, logprobs). On 0.5.18 one L3 restore of Qwen3.8 was dropped (NIXL POSIX "requires a unique devId per file"; the prompt was recomputed: a correct answer, but a miss). In an earlier image gate a 0.5.21 build silently corrupted restored KV on another hybrid model (only 7/16 L2 and 1/16 L3 restores returned the right first code): a version that restores one model correctly can corrupt another, so measure restore correctness before speed for every new model and image.
-- **Not used: the NGC image** `nvcr.io/nvidia/ai-dynamo/sglang-runtime:1.5.1` ships Dynamo 1.5.1 / SGLang 0.5.18, the version that dropped an L3 restore above.
-- **Earlier functional test** (Qwen3.8 TP1 on one RTX PRO 6000, SGLang 0.5.18, n=1, no correctness check, not part of the results): with 64 × 50K-token prefixes (3.6× L1) TTFT p50 went 15.17 s → 0.96 s with L2 80 GB + L3, and back to 15.16 s with HiCache off; an L2 of 0.87× L1 gained little, 1.45× L1 most.
-
----
+[d-why]: https://github.com/sgl-project/sglang/blob/v0.5.21/docs/docs/advanced_features/hicache_design.mdx?plain=1#L10-L12
+[d-scope]: https://github.com/sgl-project/sglang/blob/v0.5.21/docs/docs/advanced_features/hicache_design.mdx?plain=1#L25-L28
+[d-prefetch]: https://github.com/sgl-project/sglang/blob/v0.5.21/docs/docs/advanced_features/hicache_design.mdx?plain=1#L95-L96
+[d-timeout]: https://github.com/sgl-project/sglang/blob/v0.5.21/docs/docs/advanced_features/hicache_design.mdx?plain=1#L101
+[d-after]: https://github.com/sgl-project/sglang/blob/v0.5.21/docs/docs/advanced_features/hicache_design.mdx?plain=1#L103
+[d-wt]: https://github.com/sgl-project/sglang/blob/v0.5.21/docs/docs/advanced_features/hicache_design.mdx?plain=1#L126
+[d-skip]: https://github.com/sgl-project/sglang/blob/v0.5.21/docs/docs/advanced_features/hicache_design.mdx?plain=1#L130
+[d-size]: https://github.com/sgl-project/sglang/blob/v0.5.21/docs/docs/advanced_features/hicache_design.mdx?plain=1#L183
+[d-note]: https://github.com/sgl-project/sglang/blob/v0.5.21/docs/docs/advanced_features/hicache_design.mdx?plain=1#L185
+[bp-pd]: https://github.com/sgl-project/sglang/blob/v0.5.21/docs/docs/advanced_features/hicache_best_practices.mdx?plain=1#L77-L82
+[s-size]: https://github.com/sgl-project/sglang/blob/v0.5.21/python/sglang/srt/arg_groups/fields/memory.py#L111-L114
+[s-policy]: https://github.com/sgl-project/sglang/blob/v0.5.21/python/sglang/srt/arg_groups/fields/memory.py#L119-L125
+[s-layout]: https://github.com/sgl-project/sglang/blob/v0.5.21/python/sglang/srt/arg_groups/fields/memory.py#L126-L145
+[s-retry]: https://github.com/sgl-project/sglang/blob/v0.5.21/python/sglang/srt/arg_groups/fields/memory.py#L178-L201
+[s-warn]: https://github.com/sgl-project/sglang/blob/v0.5.21/python/sglang/srt/mem_cache/pool_host/base.py#L212-L220
+[s-budget]: https://github.com/sgl-project/sglang/blob/v0.5.21/python/sglang/srt/mem_cache/pool_host/base.py#L85-L102
+[s-kvlog]: https://github.com/sgl-project/sglang/blob/v0.5.21/python/sglang/srt/mem_cache/pool_host/base.py#L222-L252
+[s-mamba]: https://github.com/sgl-project/sglang/blob/v0.5.21/python/sglang/srt/mem_cache/pool_host/mamba.py#L143-L147
+[s-split]: https://github.com/sgl-project/sglang/blob/v0.5.21/python/sglang/srt/mem_cache/hybrid_cache/hybrid_pool_assembler.py#L179-L194
+[s-reissue]: https://github.com/sgl-project/sglang/blob/v0.5.21/python/sglang/srt/managers/scheduler.py#L3193-L3209
+[s-clear]: https://github.com/sgl-project/sglang/blob/v0.5.21/python/sglang/srt/managers/scheduler.py#L4905-L4913
+[s-flush]: https://github.com/sgl-project/sglang/blob/v0.5.21/python/sglang/srt/managers/scheduler.py#L5187-L5215
+[s-reset]: https://github.com/sgl-project/sglang/blob/v0.5.21/python/sglang/srt/mem_cache/unified_radix_cache.py#L368-L402
+[s-plugins]: https://github.com/sgl-project/sglang/blob/v0.5.21/python/sglang/srt/mem_cache/storage/nixl/nixl_utils.py#L118-L124
+[s-cleaneron]: https://github.com/sgl-project/sglang/blob/v0.5.21/python/sglang/srt/mem_cache/storage/nixl/nixl_utils.py#L49-L55
+[s-nixlclear]: https://github.com/sgl-project/sglang/blob/v0.5.21/python/sglang/srt/mem_cache/storage/nixl/nixl_utils.py#L236-L253
+[s-dir]: https://github.com/sgl-project/sglang/blob/v0.5.21/python/sglang/srt/mem_cache/storage/nixl/hicache_nixl.py#L87-L93
+[s-cleanerdirs]: https://github.com/sgl-project/sglang/blob/v0.5.21/python/sglang/srt/mem_cache/storage/nixl/hicache_nixl.py#L162-L183
+[s-cleaner]: https://github.com/sgl-project/sglang/blob/v0.5.21/python/sglang/srt/mem_cache/storage/nixl/nixl_cleaner.py#L148-L210
+[s-env]: https://github.com/sgl-project/sglang/blob/v0.5.21/python/sglang/srt/environ.py#L785-L789
+[s-gauge]: https://github.com/sgl-project/sglang/blob/v0.5.21/python/sglang/srt/observability/metrics_collector.py#L305-L310
+[s-host]: https://github.com/sgl-project/sglang/blob/v0.5.21/python/sglang/srt/observability/metrics_collector.py#L655-L666
+[s-cached]: https://github.com/sgl-project/sglang/blob/v0.5.21/python/sglang/srt/observability/metrics_collector.py#L1800-L1821
+[s-l3]: https://github.com/sgl-project/sglang/blob/v0.5.21/python/sglang/srt/observability/metrics_collector.py#L1893-L1904
+[s-l2]: https://github.com/sgl-project/sglang/blob/v0.5.21/python/sglang/srt/observability/metrics_collector.py#L2231-L2283
+[dy-pass]: https://github.com/ai-dynamo/dynamo/blob/v1.6.1/docs/fern/pages/developer-guide/knowledge-base/modular-components/backends/sglang/hicache.md?plain=1#L45-L46
+[dy-mooncake]: https://github.com/ai-dynamo/dynamo/blob/v1.6.1/docs/fern/pages/developer-guide/knowledge-base/modular-components/backends/sglang/hicache.md?plain=1#L145-L148
+[dy-route]: https://github.com/ai-dynamo/dynamo/blob/v1.6.1/docs/fern/pages/developer-guide/knowledge-base/modular-components/backends/sglang/reference-guide.md?plain=1#L144-L155
+[dy-admin]: https://github.com/ai-dynamo/dynamo/blob/v1.6.1/docs/fern/pages/developer-guide/knowledge-base/modular-components/backends/sglang/reference-guide.md?plain=1#L174-L175
+[dy-matrix]: https://github.com/ai-dynamo/dynamo/blob/v1.6.1/docs/fern/pages/developer-guide/knowledge-base/modular-components/router/offloading-support-matrix.md?plain=1#L14-L17
+[dy-kvbm]: https://github.com/ai-dynamo/dynamo/blob/v1.6.1/docs/fern/pages/reference/general/releases/deprecations.mdx?plain=1#L36
+[dy-cap]: https://github.com/ai-dynamo/dynamo/blob/v1.6.1/components/src/dynamo/sglang/capacity.py#L219-L224
+[open2]: https://man7.org/linux/man-pages/man2/open.2.html
+[k8s-mem]: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/#meaning-of-memory
+[hf-config]: https://huggingface.co/Qwen/Qwen3.8-27B-FP8/blob/017b9c7af6b5689d5dd426a76e0bc077eb5ca20a/config.json
 
 License: MIT-0, see [LICENSE](../../../LICENSE).

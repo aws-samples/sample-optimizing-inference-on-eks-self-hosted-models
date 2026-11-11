@@ -12,10 +12,9 @@
   ``APPROVED_SVGS`` and LICENSES.md lists no other SVG digest (Grafana is a text label, without its logo).
 * The labels that restate a fact of the repository follow it: the Region of the tfvars example, the version pins of
   ``versions.env``, the NodePool of the Frontend manifest, the optional (off by default) Grafana edge with the
-  ``kubectl port-forward`` default of Grafana, and the NGC runtime image with an optional ECR copy.  The Grafana edge is the
-  reference design (an ALB, dashed because optional); the Terraform edge it stands for is documented in the README, not drawn.
-* ``e_guards.AS_DRAWN_HITS``, the one exemption the diagram has, is exact both ways: the .drawio carries those guard hits,
-  no more and no fewer, and no other file is exempt.
+  ``kubectl port-forward`` default of Grafana, and the NGC runtime image (the drawing has no ECR cell: the sample creates no
+  ECR repository).  The Grafana edge is the reference design (an ALB, dashed because optional); the Terraform edge it
+  stands for is documented in the README, not drawn.
 """
 
 from __future__ import annotations
@@ -24,21 +23,18 @@ import base64
 import hashlib
 import re
 import struct
-from collections import Counter
 
 import lib_xml
 import sanitize_scan
 import test_docs_set as ds
-import test_sub_cycle_e_guards as e_guards
-import test_sub_cycle_f_guards as f_guards
 
 ROOT = sanitize_scan.REPO_ROOT
 DRAWIO = "docs/static/architecture.drawio"
 PNG = "docs/static/architecture.png"
 LICENSES = "docs/static/LICENSES.md"
 SHA256 = {
-    DRAWIO: "dd87546d9fd6598f25c0457b6b88a3922b4222fa47bcf2de5120632ae65cf30e",
-    PNG: "c19f108b4ef9fa4662dcf1b052ed4451d1f85a548b40e749838728c9450d09e3",
+    DRAWIO: "93521f6ebdab2f4345d01d688f520e3c77a6465817257a51532ab4c9451b7d08",
+    PNG: "d4bbf8869454df64cc8f07ab6116d66f8b945eb8b4faae19759809a5bf0b80d1",
 }
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 PNG_MAX_BYTES = 1536 * 1024
@@ -159,7 +155,7 @@ def test_diagram_labels_follow_the_repository() -> None:
                  f"Dynamo operator {pins['DYNAMO_OPERATOR_CHART_VERSION']} "):
         assert want in value["versions"], f"versions label {value['versions']!r} lacks {want!r} (versions.env)"
 
-    frontend = (ROOT / "manifests/track-q-qwen38/frontend/dgd.yaml").read_text(encoding="utf-8")
+    frontend = (ROOT / "examples/00-baseline/manifest.yaml").read_text(encoding="utf-8")
     pool = re.search(r"karpenter\.sh/nodepool:\s*(\S+)", frontend)
     assert pool, "the Frontend DGD pins a NodePool"
     assert f"NodePool {pool.group(1)}" in value["gpu-node"], "the GPU node box names the NodePool of the Frontend"
@@ -167,8 +163,7 @@ def test_diagram_labels_follow_the_repository() -> None:
         assert _inside(cells[fe], cells["gpu-node"]), f"{fe} is drawn on the node of NodePool {pool.group(1)}"
 
     variables = (ROOT / "terraform/cluster/variables.tf").read_text(encoding="utf-8")
-    for var in ("enable_grafana_edge", "create_runtime_mirror_repository"):
-        assert re.search(rf'variable "{var}" \{{[^}}]*default\s*=\s*false', variables), f"{var} defaults to false"
+    assert re.search(r'variable "enable_grafana_edge" \{[^}]*default\s*=\s*false', variables), "enable_grafana_edge defaults to false"
     alb = [cid for cid, st in style.items() if ALB_SHAPE in st]
     assert len(alb) == 1, f"one ALB icon in front of Grafana: {alb}"
     edges = [cid for cid, cell in cells.items() if cell.get("edge") == "1" and alb[0] in (cell.get("source"), cell.get("target"))]
@@ -177,18 +172,11 @@ def test_diagram_labels_follow_the_repository() -> None:
         assert "dashed=1" in style[edge], f"{edge}: the load-balancer edge is optional (the Terraform edge is off by default)"
     assert "optional" in value["lg-t8"], "the edge is labelled optional"
     assert "port-forward" in value["lg-t8"], "the legend names the default way to Grafana"
-    assert "NGC" in value["lg-t2"] and "optional" in value["ecr-sub"], "runtime image from NGC, ECR copy optional"
+    assert "NGC" in value["lg-t2"], "the legend names NGC as the source of the runtime image"
+    ecr = [cid for cid, st in style.items() if re.search(r"(^|-)ecr(-|$)", cid) or re.search(r"resIcon=mxgraph\.aws4\.ecr\b", st)]
+    assert not ecr, f"the sample creates no ECR repository, so the drawing has no ECR cell: {ecr}"
 
     text = (ROOT / DRAWIO).read_text(encoding="utf-8")
     assert not re.search(r"(?i)speak" + r"ers?\b", text), "neutral wording for the browser"
 
 
-def test_as_drawn_exemption_is_exact() -> None:
-    """The pinned hits are all the guard hits of the .drawio, process wording included (which has no exemption)."""
-    assert set(e_guards.AS_DRAWN_HITS) == {DRAWIO}, "only the diagram source is exempt"
-    assert sanitize_scan.read_text(PNG) is None, "the PNG is binary: the text guards skip it, so it needs no entry"
-    text = sanitize_scan.read_text(DRAWIO) or ""
-    patterns = [*e_guards.VOCABULARY, *f_guards.PRODUCT_EXTRA, *f_guards.ORIGINAL_REGION_PATTERNS,
-                *((pat, what) for what, pat in f_guards.PROCESS_WORDING.items())]
-    found = Counter((what, m.group(0)) for pat, what in patterns for m in re.finditer(pat, text))
-    assert found == e_guards.AS_DRAWN_HITS[DRAWIO]

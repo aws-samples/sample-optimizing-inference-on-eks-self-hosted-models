@@ -26,7 +26,7 @@ def test_evicted_tokens_panel_present_without_cache_type():
     sgl-project/sglang `python/sglang/srt/observability/metrics_collector.py` @ v0.5.18
     (line ~2060) creates ``sglang:evicted_tokens_total`` with ``labelnames=labels.keys()`` only
     (no ``pool``); only ``sglang:load_back_tokens_total`` adds ``pool`` (line ~2080). Dynamo
-    v1.5.1 `dev/observability/grafana_dashboards/sglang.json:4019` still groups by the older
+    v1.6.1 `dev/observability/grafana_dashboards/sglang.json:4019` still groups by the older
     ``cache_type`` label. No primary source shows a ``pool`` label on evicted tokens.
     """
     d = L.load_json(P)
