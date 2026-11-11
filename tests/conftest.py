@@ -44,9 +44,9 @@ def pytest_unconfigure(config: pytest.Config) -> None:
 
 
 def pytest_report_header(config: pytest.Config) -> list[str]:
-    """Warn when a local generated platform.env differs from the example (renders/goldens pin the example)."""
+    """Warn when a local generated platform.env differs from the example (the render tests pin the example)."""
     return [
-        f"WARNING: {p.relative_to(REPO_ROOT)} differs from platform.env.example; render goldens are pinned to the "
+        f"WARNING: {p.relative_to(REPO_ROOT)} differs from platform.env.example; the render tests are pinned to the "
         "example. Run the suite in a clean clone (or move the generated file aside) for a deterministic result."
         for p in platform_env.differing_local_files()
     ]

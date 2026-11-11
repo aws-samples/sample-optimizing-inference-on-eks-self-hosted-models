@@ -7,19 +7,19 @@ Repeated prefixes (multi-turn chats, shared system prompts) then reuse a cached 
 recomputed on whichever worker is next in the rotation.
 
 ## What it changes
-One field on the Frontend container: `DYN_ROUTER_MODE` goes from `round-robin` to `kv`
-(`manifests/track-q-qwen38/components/router-kv`). The workers, the namespace `s-agg` and every resource
-stay identical. `diff-vs-baseline.diff` is organised per component (a plain `diff -u` section per changed
-part): here a single Frontend section with a one-line change.
+One field on the Frontend container: `DYN_ROUTER_MODE` goes from `round-robin` to `kv`. The workers, the
+namespace `s-agg` and every resource stay identical: the command of [examples/README.md](../README.md) shows the one
+changed non-comment line.
 
 ## How to apply
 ```
-kubectl apply -k examples/01-kv-router
+kubectl --context "$KUBE_CONTEXT" apply --server-side -f examples/01-kv-router/manifest.yaml
 ```
-It uses the baseline's namespace `s-agg` and DGD name `q38`, so it updates a running baseline in place;
-only the Frontend spec changes.
+It uses the baseline's namespace `s-agg` and DGD name `q38`; against the baseline, the only differing
+non-comment line is the Frontend's `DYN_ROUTER_MODE`. Applying it over a running baseline was not tested.
 
 ## Where to look
-- `dashboards/demo/take.json`: watch "KV cache hit rate" and "Requests waiting for first token" across the switch.
+- `dashboards/demo/matrix.json`, row "R: KV-aware routing": watch "Engine hit rate per worker" and
+  "Router predicted hit" across the switch (the router panels fill only with `kv`).
 - `dashboards/sglang/sglang.json`: the "Dynamo KV Router" row (router KV hit rate distribution, per-worker
   inflight requests) is where the routing decisions show up.

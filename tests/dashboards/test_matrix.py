@@ -1,6 +1,6 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
-"""demo/matrix.json: every panel of spec section 11, scoped by $namespace, on ${datasource}."""
+"""demo/matrix.json: every panel of tests/dashboards/README.md, scoped by $namespace, on ${datasource}."""
 from __future__ import annotations
 
 import re
@@ -30,7 +30,7 @@ REQUIRED = {  # title -> regexes that must each match some expr in the panel
     "Tokens by cache source": [r"sum by \(cache_source\)", r"sglang:cached_tokens_total", r'cache_source\s*!=\s*"total"'],
     "HiCache host occupancy": [r"sglang:hicache_host_used_tokens", r"sglang:hicache_host_total_tokens"],
     "HiCache load-back": [r"rate\(\s*sglang:load_back_tokens_total"],
-    # FT-4c: sglang:prefetch_bandwidth is never observed with the nixl backend (see test_trackc_fixes.py)
+    # sglang:prefetch_bandwidth is never observed with the nixl backend (see test_dashboard_fixes.py)
     "HiCache prefetch": [r"sglang:prefetched_tokens_total"],
     "Node disk reads (md*)": [r"rate\(\s*node_disk_read_bytes_total", r'device\s*=~\s*"[^"]*md\.\*', r"\b(node|instance|nodename)\b\s*=~?"],
 }
@@ -146,8 +146,8 @@ def test_configmap_wraps_matrix(dash):
 
 
 # --- metric extractor: label names are not metrics --------------------------------------------
-# Labels `dynamo_component_type` / `dynamo_graph_deployment` are added by the Dynamo v1.5.1 operator
-# PodMonitors (deploy/helm/charts/platform/components/operator/templates/prometheus.yaml @ v1.5.1).
+# Labels `dynamo_component_type` / `dynamo_graph_deployment` are added by the Dynamo v1.6.1 operator
+# PodMonitors (deploy/helm/charts/platform/components/operator/templates/prometheus.yaml @ v1.6.1).
 NS = '{namespace="${namespace}"}'
 
 

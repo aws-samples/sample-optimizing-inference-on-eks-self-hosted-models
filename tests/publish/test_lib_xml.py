@@ -95,7 +95,7 @@ def test_lib_xml_parses_with_defusedxml_and_imports_nothing_from_the_xml_package
 
 @pytest.mark.parametrize("name", sorted(REFUSED))
 def test_the_refusals_are_the_defusedxml_exceptions(tmp_path: Path, name: str) -> None:
-    import defusedxml  # pinned in tests/requirements-test.txt and in the dev group of tools/demo_bench
+    import defusedxml  # pinned in tests/requirements-test.txt
 
     assert issubclass(lib_xml.ForbiddenXmlError, defusedxml.DefusedXmlException)
     with pytest.raises(defusedxml.DefusedXmlException):

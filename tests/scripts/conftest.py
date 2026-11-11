@@ -3,7 +3,7 @@
 """Environment for the script contract tests.
 
 Since the kube-context guard (``test_95_kube_context.py``) the scripts refuse to run off-cluster
-unless ``KUBE_CONTEXT`` is set, and (Track Q is the only profile) the context must be the ``CLUSTER_NAME`` of the platform config,
+unless ``KUBE_CONTEXT`` is set, and (the scripts have one profile) the context must be the ``CLUSTER_NAME`` of the platform config,
 so every script test runs with that cluster unless it overrides the environment itself.  ``KUBERNETES_SERVICE_HOST`` is cleared so a CI pod cannot mask the guard.
 """
 

@@ -6,8 +6,6 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .pytest_cache/
-.hypothesis/
-dist/
 
 # Terraform state, providers and local variable files
 *.tfstate

@@ -60,14 +60,12 @@ locals {
   sample_repo_dir = "${path.module}/../.."
 
   # Ready-made dashboard ConfigMaps:
-  #   dynamo/disagg -> dashboards/dynamo, vendored from ai-dynamo/dynamo v1.5.1 (deploy/observability), Apache-2.0
-  #   demo-*        -> dashboards/demo/*-configmap.yaml
+  #   dynamo/disagg -> dashboards/dynamo, vendored from ai-dynamo/dynamo v1.6.1 (deploy/observability), Apache-2.0
+  #   demo-matrix   -> dashboards/demo/matrix-configmap.yaml
   grafana_dashboard_files = {
-    dynamo         = "${local.sample_repo_dir}/dashboards/dynamo/grafana-dynamo-dashboard-configmap.yaml"
-    disagg         = "${local.sample_repo_dir}/dashboards/dynamo/grafana-disagg-dashboard-configmap.yaml"
-    "demo-matrix"  = "${local.sample_repo_dir}/dashboards/demo/matrix-configmap.yaml"
-    "demo-take"    = "${local.sample_repo_dir}/dashboards/demo/take-configmap.yaml"
-    "demo-compare" = "${local.sample_repo_dir}/dashboards/demo/compare-configmap.yaml"
+    dynamo        = "${local.sample_repo_dir}/dashboards/dynamo/grafana-dynamo-dashboard-configmap.yaml"
+    disagg        = "${local.sample_repo_dir}/dashboards/dynamo/grafana-disagg-dashboard-configmap.yaml"
+    "demo-matrix" = "${local.sample_repo_dir}/dashboards/demo/matrix-configmap.yaml"
   }
 }
 
@@ -178,7 +176,7 @@ resource "helm_release" "kube_prometheus_stack" {
 # of the nvidia.com/gpu taint; without a GPU node it schedules nothing.
 # The chart's default security context (root + SYS_ADMIN, needed for
 # DCGM_FI_PROF_*) is kept; `monitoring` is PSA privileged.
-# customMetrics = Dynamo's NVLink-enabled field list (v1.5.1).
+# customMetrics = Dynamo's NVLink-enabled field list (v1.6.1).
 # wait = false: GPU nodes come and go (reservations, scale to zero).
 ################################################################################
 

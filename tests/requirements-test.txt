@@ -6,7 +6,6 @@
 # From the repository root: uv run --with-requirements tests/requirements-test.txt pytest tests/<suite> -q
 # To update: change the four direct pins, then resolve the whole set again and replace the lines below with
 #   printf 'pytest==<v>\npyyaml==<v>\njsonschema==<v>\ndefusedxml==<v>\n' | uv pip compile - --universal --no-header --no-annotate
-# defusedxml is also pinned in the dev group of tools/demo_bench/pyproject.toml: keep both at the same version.
 attrs==26.1.0
 colorama==0.4.6 ; sys_platform == 'win32'
 defusedxml==0.7.1

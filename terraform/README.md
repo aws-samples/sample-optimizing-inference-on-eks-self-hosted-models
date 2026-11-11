@@ -5,46 +5,31 @@ One parametrized root for any region and any P or G GPU instance type, plus a bo
 | Folder | What it is |
 |---|---|
 | `bootstrap/` | The model and results S3 buckets. Apply it first and destroy it last. |
-| `cluster/` | VPC, EKS Auto Mode, the `cpu-demo` pool, one GPU NodeClass/NodePool per group of GPU types, namespaces, Pod Identity roles, the bench ECR repository and an optional runtime-image mirror repository (encrypted with a KMS key of the stack), observability, `dynamo-platform` and an optional Grafana edge. |
+| `cluster/` | VPC, EKS Auto Mode, the `cpu-demo` pool, one GPU NodeClass/NodePool per group of GPU types, namespaces, Pod Identity roles (model prefetch and staging; the benchmark Job, which may only write under `perf/` of the results bucket), observability, `dynamo-platform` and an optional Grafana edge. |
 | `cluster/modules/gpu-pools/` | Pure module (no providers or resources): it groups the GPU types and renders the NodeClass/NodePool manifests. `cluster/tests/` tests it with `terraform test`. |
-
-Both ECR repositories set `scan_on_push = true`, the repository setting of basic scanning: in a registry set to enhanced scanning (Amazon Inspector), as in the account of the tests, the registry filters decide what is scanned and the repository setting has no effect, and `aws ecr describe-images` shows no `imageScanStatus`; read the findings with `aws ecr describe-image-scan-findings` or in Amazon Inspector.
 
 ## Before you start
 
-- **Terraform >= 1.12** (tested with 1.12.2 and 1.17.0), the AWS CLI, `kubectl` and `python3`. Older versions do not short-circuit `||`, and the plan fails on GPU types without EFA.
-- **You buy the GPU capacity.** Terraform never purchases a Capacity Block or an ODCR. With `capacity-block` or `odcr` you reserve it first and pass its ID. With `on-demand` or `spot` the instance is launched when a pod needs it, and P/G capacity is not guaranteed.
+- **Terraform >= 1.12** (tested with 1.12.2 and 1.17.0). Older versions do not short-circuit `||`, and the plan fails on GPU types without EFA. The other tools are in [docs/DEPLOY.md](../docs/DEPLOY.md#prerequisites).
+- **You buy the GPU capacity**: what to do first for each `gpu_capacity_type` is in [docs/DEPLOY.md](../docs/DEPLOY.md#prerequisites).
 - The identity that runs `plan` needs `ec2:DescribeInstanceTypes`, `ec2:DescribeInstanceTypeOfferings` and `ec2:DescribeCapacityReservations`, on top of what the resources need.
 - Local state by default. To keep it in S3, copy `backend.tf.example` to `backend.tf` in each folder. It uses an S3 lock file (`use_lockfile`), with no DynamoDB table.
 
 ## The minimum tfvars
 
-Copy `cluster/terraform.tfvars.example` to `cluster/terraform.tfvars`. Every user-facing choice is in that one file. Only these are required. Everything else is derived or has a default.
-
-```hcl
-aws_region               = "us-east-2"
-eks_public_access_cidrs  = ["203.0.113.10/32"]      # your egress IPs
-gpu_instance_types       = ["p6-b200.48xlarge"]
-gpu_capacity_type        = "capacity-block"         # capacity-block | odcr | on-demand | spot
-capacity_reservation_ids = ["cr-<17 hex>"]          # [] for on-demand and spot
-model_id                 = "Qwen/Qwen3.8-27B-FP8"
-model_revision           = "017b9c7af6b5689d5dd426a76e0bc077eb5ca20a"
-runtime_image            = "nvcr.io/nvidia/ai-dynamo/sglang-runtime:1.6.0-efa@sha256:d574951b0dbd037bdcaabe121431a83cd047a5c106cb243fe6f2f97f2e456cd2"
-```
-
-`runtime_image` is already set in the example: the public NGC image of `versions.env`, pinned by digest.
+Copy `cluster/terraform.tfvars.example` to `cluster/terraform.tfvars`. Every user-facing choice is in that one file. The keys you must set are in [step 2 of docs/DEPLOY.md](../docs/DEPLOY.md#2-cluster-terraformcluster). Everything else is derived or has a default.
 
 What Terraform derives:
 
 | Value | Derived from |
 |---|---|
-| Account ID, ECR registry | `data.aws_caller_identity`; no account ID is in any file. |
+| Account ID | `data.aws_caller_identity`; no account ID is in any file. |
 | `cluster_name` | `<project_name>-<region code>`, e.g. `dynamo-sample-use2`. The region code is the prefix of the AZ IDs. |
-| Bucket names | `<prefix>-models-<account>-<suffix>` and `<prefix>-results-<account>-<suffix>` for the cluster `<prefix>-<suffix>`. `bootstrap/` uses the same rule, so keep `project_name` and `cluster_name` identical in both. `scripts/lib/common.sh` derives the Track Q cluster from `MODEL_BUCKET` the same way. |
+| Bucket names | `<prefix>-models-<account>-<suffix>` and `<prefix>-results-<account>-<suffix>` for the cluster `<prefix>-<suffix>`. `bootstrap/` uses the same rule, so keep `project_name` and `cluster_name` identical in both. |
 | GPU facts | `data.aws_ec2_instance_type` for each type: network cards, EFA interfaces, GPU name, count and memory, vCPU, memory, instance store. |
 | GPU AZ | `capacity-block`: the AZ of each block. `on-demand` and `spot`: the first VPC AZ that offers every type. `odcr`: required in `gpu_az_ids`. |
 | Pool size (`limits`) | `capacity-block`: the instance count of the live blocks. `on-demand` and `spot`: 1 node per pool. `odcr`: required in `gpu_max_nodes`. Output `gpu_pools[*].max_nodes` shows the value. |
-| `cpu-demo` AZ | The first GPU AZ, so frontends, bench and GPU workers share an AZ. |
+| `cpu-demo` AZ | The first GPU AZ. |
 | Labels | `nvidia.com/gpu.present=true` and `nvidia.com/gpu.product=NVIDIA-<GPU NAME>`. |
 
 ## Variables
@@ -52,7 +37,7 @@ What Terraform derives:
 | Variable | Default | What it does |
 |---|---|---|
 | `aws_region` | required | Region of the stack. |
-| `project_name` | `dynamo-sample` | ECR repository prefix (`<project_name>/bench` and the optional `<project_name>/sglang-runtime`), `Project` tag and default name prefix. |
+| `project_name` | `dynamo-sample` | `Project` tag and default name prefix. |
 | `cluster_name` | derived | EKS cluster name, `<prefix>-<suffix>`. Also the prefix of the IAM roles. |
 | `eks_public_access_cidrs` | required | CIDRs allowed on the public EKS API endpoint. A zero-length prefix (any `/0`, including `::/0`) is rejected. |
 | `allow_open_eks_api` | `false` | Accepts a `/0` in `eks_public_access_cidrs`. Authentication still needs IAM plus an EKS access entry. Demo-only escape hatch. |
@@ -71,17 +56,14 @@ What Terraform derives:
 | `vpc_cidr`, `vpc_az_ids`, `eks_control_plane_excluded_az_ids` | `10.70.0.0/16`, every AZ, `[]` | VPC. It spans every AZ, so a reservation in another AZ needs no VPC change. |
 | `model_id`, `model_revision` | required | Hugging Face repo ID and the 40-character commit SHA, never a branch. |
 | `hf_token_secret_arn` | `null` | Optional Secrets Manager ARN of a Hugging Face token. Terraform grants `secretsmanager:GetSecretValue` on that ARN only, to the model-prefetch role. It never creates or reads the secret. |
-| `runtime_image` | `""` | Runtime image of the Frontend and the workers, pinned by digest: the public NGC image of `versions.env` (set in the example), or its copy in `<project_name>/sglang-runtime` (`create_runtime_mirror_repository = true`). `scripts/gen_env.py` refuses an empty value. |
-| `create_runtime_mirror_repository` | `false` | Creates `<project_name>/sglang-runtime`, the ECR repository of the optional copy of the runtime image (`docs/DEPLOY.md`, "Mirror the image to your ECR"). Off, the workers pull the public NGC image, the output `sglang_runtime_ecr_repository_url` is null and `SGLANG_RUNTIME_REPO` is empty. A stack applied before this variable existed plans to destroy the repository unless you set it to `true`. |
-| `workload_rate`, `workload_context_tokens`, `workload_sessions_per_rate` | `10`, `16384`, `75` | `RATE`, `MAX_ISL` and `SESSIONS_PER_RATE` of `config/sample.env` (the W3-16K workload shape). |
+| `runtime_image` | `""` | Runtime image of the Frontend and the workers, pinned by digest: the public NGC image of `versions.env` (set in the example). `scripts/gen_env.py` refuses an empty value. |
 | `model_bucket_name`, `results_bucket_name` | derived | Override the bucket names. |
 | `enable_grafana_edge` | `false` | Publishes Grafana through CloudFront (VPC origin) and AWS WAF. Off: use `kubectl port-forward`. On, it also needs `grafana_edge_allow_plain_http_origin = true` (see [Grafana](#grafana)). |
 | `grafana_edge_allow_plain_http_origin` | `false` | Accepts that the hop from CloudFront to the internal NLB of the edge is plain HTTP. Required with the edge on: the plan refuses `enable_grafana_edge = true` without it. |
 | `grafana_edge_domain` | `""` | Optional domain name you own for the edge, set together with `grafana_edge_viewer_certificate_arn`: viewers then get the `TLSv1.2_2021` security policy over SNI. Empty: the default `*.cloudfront.net` certificate (see [Grafana](#grafana)). |
 | `grafana_edge_viewer_certificate_arn` | `""` | ARN of an issued ACM certificate in `us-east-1` that covers `grafana_edge_domain`. The plan refuses one of the two without the other, and a certificate in another Region. |
 | `vpc_cni_addon_version`, `kube_proxy_addon_version`, `node_monitoring_agent_addon_version` | pinned | Add-on builds for Kubernetes 1.35. Review them when you change `kubernetes_version`. |
-| `image_mirror_source_region` | `null` | Optional region of same-account source ECR repositories the `node-ops/image-mirror` role may read: `bench`, and `sglang-runtime` with `create_runtime_mirror_repository = true`. The repository ships no Job for that role: it is for an in-cluster copy Job you add yourself (`cluster/iam-image-mirror.tf`). |
-| `kubernetes_version`, `dynamo_version`, chart versions, `prometheus_*`, `ecr_untagged_expire_days`, `grafana_*`, `tags` | see `variables.tf` | Pins and tuning. |
+| `kubernetes_version`, `dynamo_version`, chart versions, `prometheus_*`, `grafana_*`, `tags` | see `variables.tf` | Pins and tuning. |
 
 ## GPU types
 
@@ -91,12 +73,13 @@ The pool name is `gpu-<gpu>-<cb|odcr|od|spot>`. When two groups share a GPU name
 |---|---|---|---|
 | `p6-b200.48xlarge` | B200, 8 | 8 network cards, 8 EFA | **Validated**: EFA, Capacity Block. The rendered NodeClass/NodePool equal the live objects (`gpu_pools_golden.tftest.hcl`). |
 | `g7e.4xlarge` | RTX PRO Server 6000, 1 | no EFA | **Validated**: no EFA, ODCR (test pool). |
-| `p5.48xlarge`, `p5en.48xlarge`, `p6-b300.48xlarge`, `p4d.24xlarge`, `p4de.24xlarge` | H100, H200, B300, A100 | 4 to 32 EFA | Supported by Terraform, manifests untested. The `p6-b300` (17 cards, 16 EFA) and `p5` (32 EFA) layouts follow the same rule but never ran. |
+| `p5en.48xlarge` | H200, 8 | 16 network cards, 16 EFA | Supported by Terraform. On a Capacity Block (2026-11-07) the pool `gpu-h200-cb` that this Terraform generated started the node, and S0 (`examples/00-baseline`) ran the 5 req/s load of `benchmarks/perf.yaml`: S0 is the only cell applied on the generated pool. The other cells ran earlier on `p5en.48xlarge` with a pool created by hand, as described in `docs/optimizations/`. |
+| `p5.48xlarge`, `p6-b300.48xlarge`, `p4d.24xlarge`, `p4de.24xlarge` | H100, B300, A100 | 4 to 32 EFA | Supported by Terraform, manifests untested. The `p6-b300` (17 cards, 16 EFA) and `p5` (32 EFA) layouts follow the same rule but never ran. |
 | `g6e.*`, `g7e.48xlarge`, `g6.48xlarge`, `g5.*` | L40S, RTX PRO Server 6000, L4, A10G | no EFA, or 1 to 4 EFA | Supported by Terraform, manifests untested. |
 
 Rejected at plan: types that are not P or G, without NVIDIA GPUs (e.g. `g4ad`), arm64-only (e.g. `g5g`), or with more network cards than EFA interfaces + 1.
 
-The Track Q manifests select `karpenter.sh/nodepool: gpu-b200-cb` and 8 GPUs per node. Any other shape is **supported by Terraform, manifests untested**: the pods of the manifests stay Pending until you adapt their node selectors and GPU counts.
+The manifests select `karpenter.sh/nodepool: gpu-b200-cb` and 8 GPUs per node. Any other shape is **supported by Terraform, manifests untested**: the pods of the manifests stay Pending until you adapt their node selectors and GPU counts ([docs/DEPLOY.md](../docs/DEPLOY.md#prerequisites)).
 
 ## Capacity types
 
@@ -111,20 +94,18 @@ A NodeClass that selects a reservation turns off the automatic use of open ODCRs
 
 ## Run order
 
-1. **Bootstrap.** `cd bootstrap && cp terraform.tfvars.example terraform.tfvars`, set the same region, `project_name` and `cluster_name` as the cluster, then `terraform init && terraform apply`.
+1. **Bootstrap.** `cd bootstrap && cp terraform.tfvars.example terraform.tfvars`, set the same region and `project_name` as the cluster (and the same `cluster_name`, if you set it), then `terraform init && terraform apply`.
 2. **Cluster.** `cd ../cluster && cp terraform.tfvars.example terraform.tfvars` and fill it in (`runtime_image` is already the public image of `versions.env`), then `terraform init && terraform apply`. Run the `configure_kubectl` output.
-3. **Optional: copy the image to ECR.** To keep the image pull off the NAT gateway, set `create_runtime_mirror_repository = true` and apply, which creates `<project_name>/sglang-runtime`. Copy the image into it with its digest (for example with `crane copy`, see `docs/DEPLOY.md`), set `runtime_image` to the copy and apply.
-4. **Generate the env.** `python3 scripts/gen_env.py` from the repo root. It reads `terraform output -json` and writes `manifests/config/platform.env` (read by kustomize and `scripts/lib/common.sh`) and `config/sample.env`. Both are gitignored. See below.
-5. **Stage and prefetch the weights.** `scripts/10-stage-model.sh` (Hugging Face to S3), then `scripts/11-prefetch.sh` (S3 to the GPU node); see `docs/DEPLOY.md`.
-6. **Deploy a cell.** `kubectl --context <cluster> apply --server-side -k examples/00-baseline`, then the other folders of `examples/`.
+3. **Generate the env.** `python3 scripts/gen_env.py` from the repo root. It reads `terraform output -json` and writes `manifests/config/platform.env` (read by the scripts), gitignored. See below.
+4. **Stage and prefetch the weights.** `scripts/10-stage-model.sh` (Hugging Face to S3), then `scripts/11-prefetch.sh` (S3 to the GPU node); see `docs/DEPLOY.md`.
+5. **Deploy a cell.** `kubectl --context <cluster> apply --server-side -f examples/00-baseline/manifest.yaml`, then the other folders of `examples/`.
 
 ## Generated env (`scripts/gen_env.py`)
 
-Terraform exports `platform_env`, `sample_env` and `gpu_pools`. Nothing secret is in them. `gen_env.py` validates them and writes plain `KEY=VALUE` files under a `# GENERATED` header. It writes nothing when it refuses, and it never prints a value.
+Terraform exports `platform_env`, `sample_env` and `gpu_pools`. Nothing secret is in them. `gen_env.py` validates them and writes one file of plain `KEY=VALUE` lines under a `# GENERATED` header. It writes nothing when it refuses, and it never prints a value.
 
-- `platform.env`: `AWS_ACCOUNT_ID`, `AWS_REGION`, `CLUSTER_NAME`, `MODEL_BUCKET`, `RESULTS_BUCKET`, `ECR_REGISTRY`, `SGLANG_RUNTIME_REPO` (empty unless `create_runtime_mirror_repository = true`), `BENCH_REPO`, `GPU_CAPACITY_TYPE`, `GPU_POOLS` (`<pool>:<gpus>:<efa>,...`), `PRIMARY_AZ`, `GRAFANA_EDGE_ENABLED`. With exactly one pool it adds `GPU_NODEPOOL`, `GPU_INSTANCE_TYPES`, `GPU_PRODUCT`, `GPUS_PER_NODE`, `EFA_INTERFACES_PER_NODE`, `GPU_MEMORY_GIB_PER_GPU`, `HOST_MEMORY_GIB`, `EPHEMERAL_MIN_GIB` and `GPU_AZ`. It also adds `MODEL_ID`, `MODEL_REVISION` and `RUNTIME_IMAGE` of `sample_env`. `manifests/config/platform.env.example` shows the result.
-- `config/sample.env`: `MODEL_ID`, `MODEL_REVISION`, `RUNTIME_IMAGE`, `RATE`, `MAX_ISL`, `SESSIONS_PER_RATE` and, when set, `HF_TOKEN_SECRET_ARN`. Source it in your shell. The scripts read `RATE`.
-- **Track Q gate.** It refuses any shape other than one pool `gpu-b200-cb` with 8 GPUs per node, and any model other than `Qwen/Qwen3.8-27B-FP8`, unless you pass `--allow-untested`. With the flag it warns `manifests untested` and, for another shape, writes `GPU_SHAPE_SUPPORTED=terraform-only`. An empty `RUNTIME_IMAGE` is always refused.
+- `platform.env`: `AWS_ACCOUNT_ID`, `AWS_REGION`, `CLUSTER_NAME`, `MODEL_BUCKET`, `RESULTS_BUCKET`, `GPU_CAPACITY_TYPE`, `GPU_POOLS` (`<pool>:<gpus>:<efa>,...`), `PRIMARY_AZ`, `GRAFANA_EDGE_ENABLED`. With exactly one pool it adds `GPU_NODEPOOL`, `GPU_INSTANCE_TYPES`, `GPU_PRODUCT`, `GPUS_PER_NODE`, `EFA_INTERFACES_PER_NODE`, `GPU_MEMORY_GIB_PER_GPU`, `HOST_MEMORY_GIB`, `EPHEMERAL_MIN_GIB` and `GPU_AZ`. It also adds the keys of `sample_env` (`MODEL_ID`, `MODEL_REVISION`, `MODEL_S3_PREFIX`, `RUNTIME_IMAGE` and, when `hf_token_secret_arn` is set, `HF_TOKEN_SECRET_ARN`) and `MODEL_S3_URI`. `manifests/config/platform.env.example` shows the result.
+- **Tested-shape check.** It refuses any shape other than one pool `gpu-b200-cb` with 8 GPUs per node, and any model other than `Qwen/Qwen3.8-27B-FP8`, unless you pass `--allow-untested`. With the flag it warns `manifests untested` and, for another shape, writes `GPU_SHAPE_SUPPORTED=terraform-only`. An empty `RUNTIME_IMAGE` is always refused.
 
 ## Grafana
 
@@ -149,8 +130,7 @@ You pay for what runs, including idle time:
 - GPU instances, or the reservation: a Capacity Block is paid up front, and an ODCR bills whether or not a node runs.
 - The EKS control plane, the Auto Mode management fee on each node, the `cpu-demo` nodes and the single NAT gateway (hourly and per GB).
 - EBS: the node volumes and the 50 GiB Prometheus volume.
-- S3 and ECR storage, and the EKS audit logs in CloudWatch Logs.
-- The KMS key of the ECR repositories: US$ 1 a month, and each of its first two yearly rotations adds US$ 1 a month (us-east-2 list prices as of 2026-10-27, [AWS KMS pricing](https://aws.amazon.com/kms/pricing/)), plus requests beyond the free tier. No charge while it is pending deletion after `terraform destroy`.
+- S3 storage, and the EKS audit logs in CloudWatch Logs.
 - With the Grafana edge: CloudFront requests and transfer, and the WAF web ACL with its rules and requests.
 
 The S3 gateway endpoint keeps model downloads off the NAT gateway. Get prices from the AWS Pricing Calculator for your region.
@@ -176,10 +156,9 @@ Terraform does not merge the stack tags into the NodeClass: a change of the Node
 
 ## Teardown order
 
-1. Delete the workloads: `kubectl delete -k examples/<folder>`, plus anything else you applied.
+1. Delete the workloads: `kubectl delete -f examples/<folder>/manifest.yaml`, plus anything else you applied.
 2. Delete the GPU NodeClaims (`kubectl delete nodeclaims -l karpenter.sh/nodepool=<pool>`) so no GPU node and no ENI is left.
-3. Empty the ECR repositories `<project_name>/bench` and, with `create_runtime_mirror_repository = true`, `<project_name>/sglang-runtime`: `aws ecr list-images`, then `aws ecr batch-delete-image` by digest, at most 100 per call, until the listing is empty (step 3 of `scripts/90-teardown.sh`, or the commands in [docs/DEPLOY.md](../docs/DEPLOY.md#teardown)). Both keep `force_delete = false` on purpose, so that Terraform never deletes an image on its own: the destroy, or a replacement after a change, stops with `RepositoryNotEmptyException` while a repository holds one.
-4. `terraform destroy` in `cluster/`.
-5. `terraform destroy` in `bootstrap/`, only if you no longer need the weights and results. The buckets have `force_destroy = false`, so empty them first. The results bucket is versioned, so delete its versions too.
+3. `terraform destroy` in `cluster/`.
+4. `terraform destroy` in `bootstrap/`, only if you no longer need the weights and results. The buckets have `force_destroy = false`, so empty them first. The results bucket is versioned, so delete its versions too.
 
-After a failed or partial apply of `cluster/`, fix the error and re-run the apply if you can. To tear the partial stack down instead, keep the same order: `scripts/90-teardown.sh` finds no generated env file then, so pass `--from-terraform` and it reads the cluster name, the region, the GPU pools, the bucket names and the ECR repositories from `terraform output -json`. See [After a failed or partial apply](../docs/DEPLOY.md#after-a-failed-or-partial-apply) in docs/DEPLOY.md.
+After a failed or partial apply of `cluster/`, fix the error and re-run the apply if you can. To tear the partial stack down instead, keep the same order: `scripts/90-teardown.sh` finds no generated env file then, so pass `--from-terraform` and it reads the cluster name, the region, the GPU pools and the bucket names from `terraform output -json`. See [After a failed or partial apply](../docs/DEPLOY.md#after-a-failed-or-partial-apply) in docs/DEPLOY.md.

@@ -1,6 +1,7 @@
-# Dynamo v1.5.1 docs/fern/pages/reference/observability/metrics-catalog.mdx (ParamField paths).
-# Regenerate: git -C <dynamo> show v1.5.1:<path> | grep -o '<ParamField path="[a-z_0-9]*"'
+# Dynamo v1.6.1 docs/fern/pages/reference/observability/metrics-catalog.mdx (ParamField paths).
+# Regenerate: git -C <dynamo> show v1.6.1:<path> | grep -o '<ParamField path="[a-z_0-9]*"'
 dynamo_component_cancellation_total
+dynamo_component_ckf_mutation_total
 dynamo_component_errors_total
 dynamo_component_inflight_requests
 dynamo_component_kv_cache_events_applied

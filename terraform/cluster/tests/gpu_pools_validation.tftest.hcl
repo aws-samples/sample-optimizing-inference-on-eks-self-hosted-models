@@ -1,7 +1,7 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
 #
-# RED tests: every rejected input of the gpu-pools module fails on a NAMED VARIABLE validation (cross-variable
+# Tests: every rejected input of the gpu-pools module fails on a NAMED VARIABLE validation (cross-variable
 # validations need Terraform >= 1.9). A rejected input must produce no other error: the module has to stay
 # evaluable (no index/lookup errors) when a validation fails.
 # Contract and inputs: see the header of gpu_pools_grouping.tftest.hcl.

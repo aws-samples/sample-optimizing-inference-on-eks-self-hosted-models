@@ -6,8 +6,8 @@
 #
 #   models   weights staged from Hugging Face (s3://<bucket>/<Org>-<Name>/ +
 #            a `.done` object written last); read by the model-prefetch Job
-#   results  benchmark results (versioned, never expired), written by the
-#            results-writer Pod Identity role of ../cluster (no Delete*)
+#   results  benchmark results (versioned, never expired); no role of
+#            ../cluster writes to it
 #
 # ../cluster references both by name only, with the same naming rule as here.
 # Apply this stack first and destroy it last.

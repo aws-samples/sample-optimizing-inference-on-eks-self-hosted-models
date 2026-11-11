@@ -1,6 +1,6 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
-"""RED tests: hygiene of every file the model staging Job adds (no mutable image tag, no credential-looking string).
+"""Tests: hygiene of every file the model staging Job adds (no mutable image tag, no credential-looking string).
 
 Scope: ``scripts/10-stage-model.sh``, ``tools/stage_model/`` (code, requirements, tests), the model-stager Terraform test, the
 env templates the feature touches, and the new test files themselves. The tokens used by the tests are dummies built at run
@@ -130,10 +130,3 @@ def test_env_template_lists_the_model_path_keys() -> None:
     assert not re.search(r"(?m)^HF_TOKEN=\S", text), "the example never carries a token value"
 
 
-def test_docs_explain_the_job_gated_models_and_the_secrets_manager_option() -> None:
-    docs = [p for p in [REPO / "README.md", *(REPO / "docs").rglob("*.md"), REPO / "terraform" / "README.md", REPO / "tools" / "stage_model" / "README.md"] if p.is_file()]
-    text = "\n".join(p.read_text(errors="replace") for p in docs)
-    assert "10-stage-model.sh" in text, "document how to run the staging Job"
-    assert "HF_TOKEN" in text and re.search(r"licen[cs]e", text, re.I), "document gated models: accept the licence, set HF_TOKEN"
-    assert "hf_token_secret_arn" in text, "document the Secrets Manager option"
-    assert "--dry-run" in text

@@ -1,6 +1,6 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
-"""``scripts/90-teardown.sh``: the documented teardown order, automated.  RED until the script exists.
+"""``scripts/90-teardown.sh``: the documented teardown order, automated.
 
 Contract (docs/DEPLOY.md, section Teardown):
 
@@ -11,21 +11,13 @@ Contract (docs/DEPLOY.md, section Teardown):
   -l karpenter.sh/nodepool=<pool>`` for every pool of ``GPU_POOLS`` (``name:gpus:efa,...``) of the generated env, or
   for each ``--pool gpu-...`` instead; every ``cpu-demo`` NodeClaim whose node runs only DaemonSet (or finished) pods
   is deleted by name, a busy one never; then it polls until no node and no NodeClaim of those GPU pools is left,
-  up to ``--timeout`` seconds, and a timeout stops the run before step 3; (3) the ECR repositories of the stack are
-  emptied, because their ``force_delete = false`` fails the cluster destroy with ``RepositoryNotEmptyException``
-  while they hold an image (live test 3b, D14): ``aws ecr list-images`` + ``batch-delete-image`` (by digest, at most
-  100 per call, until the listing is empty) for ``BENCH_REPO`` and, when it is set, ``SGLANG_RUNTIME_REPO``, which
-  must be ``<ECR_REGISTRY>/<project>/bench`` and ``<ECR_REGISTRY>/<project>/sglang-runtime``, ``ECR_REGISTRY`` being the
-  private registry of a 12-digit account in the run's region (with ``--from-terraform``: the registry of the repository
-  outputs), with ``--registry-id`` and ``--region`` (any other value is refused before any call; the script spells no
-  ECR host, ``tests/manifests/test_95_region_config.py``); a repository that does not exist is skipped, an image an index still references is retried in the next pass, and any other failure, or a
-  pass that deletes nothing, stops the run before the destroy; (4) ``terraform -chdir=<repo>/terraform/cluster
+  up to ``--timeout`` seconds, and a timeout stops the run before step 3; (3) ``terraform -chdir=<repo>/terraform/cluster
   destroy`` runs only with ``--destroy-cluster --yes`` (no ``-auto-approve``: Terraform still asks), otherwise it is
   printed.
-* ``--after-destroy`` (the cluster destroy is done): (5) ``aws s3 rm s3://<RESULTS_BUCKET> --recursive`` then every
+* ``--after-destroy`` (the cluster destroy is done): (4) ``aws s3 rm s3://<RESULTS_BUCKET> --recursive`` then every
   object version and delete marker through ``aws s3api list-object-versions`` + ``delete-objects`` in batches of at most
   1000 until the listing is empty (an ``Errors`` answer stops the run); the model bucket only with ``--empty-models``;
-  (6) the bootstrap destroy is printed, never run.  No kubectl and no ECR call in this run.
+  (5) the bootstrap destroy is printed, never run.  No kubectl call in this run.
 * Safety: ``KUBE_CONTEXT`` must name the ``CLUSTER_NAME`` of the generated env (the guard of ``lib/common.sh``), the run
   is off-cluster only, the generated env (``PLATFORM_ENV``, first line the ``gen_env.py`` header) must exist, bucket
   names, region and pools come from that file only (never from the caller's environment), and nothing outside the
@@ -33,19 +25,18 @@ Contract (docs/DEPLOY.md, section Teardown):
 * The end of every run prints the checklist: no ENI left in the VPC, the 50 GiB Prometheus volume gone, a Capacity
   Block or ODCR bills until its end.
 * After a failed or partial ``terraform apply`` of the cluster there is no generated env (``gen_env.py`` refuses
-  without the ``platform_env`` output; live test 3).  Without it the run still refuses, and names the fallback:
+  without the ``platform_env`` output).  Without it the run still refuses, and names the fallback:
   ``--from-terraform`` reads the values instead from ``terraform -chdir=<repo>/terraform/cluster output -json``
   (``cluster_name``, ``region``, ``gpu_pools``, ``results_bucket_name``, ``model_bucket_name``) and, for
   ``--after-destroy``, from ``terraform -chdir=<repo>/terraform/bootstrap output -json`` (``results_bucket``,
-  ``model_storage_bucket``), the repositories from ``bench_ecr_repository_url`` and
-  ``sglang_runtime_ecr_repository_url`` (absent after the failed apply of live test 3: nothing to empty); a value no
+  ``model_storage_bucket``); a value no
   output holds (after the cluster destroy: the cluster name and the region) comes
   from ``TEARDOWN_CLUSTER_NAME``, ``TEARDOWN_AWS_REGION``, ``TEARDOWN_RESULTS_BUCKET`` or ``TEARDOWN_MODEL_BUCKET``.
   Sources that disagree are refused, the ambient ``CLUSTER_NAME``/``AWS_REGION``/``*_BUCKET`` are never read, the
   ``TEARDOWN_*`` variables only with the flag, and with nothing that names the cluster it refuses.  Those
   ``terraform output -json`` reads are the only calls of its dry run.
 
-The fakes below (``kubectl``, ``aws``, ``terraform``) model one small cluster, two buckets and the ECR repositories in
+The fakes below (``kubectl``, ``aws``, ``terraform``) model one small cluster and two buckets in
 ``world.json``; the harness of ``lib_scripts`` supplies the call log and the fake clock (``sleep``/``date``).
 """
 
@@ -62,7 +53,7 @@ from typing import Any
 
 import lib_scripts as S
 import pytest
-import trackq_scripts as T
+import q38_scripts as T
 
 SCRIPT = "90-teardown.sh"
 SCRIPT_PATH = S.SCRIPTS_DIR / SCRIPT
@@ -74,12 +65,6 @@ REGION = T.CFG["AWS_REGION"]
 RESULTS = T.CFG["RESULTS_BUCKET"]
 MODELS = T.CFG["MODEL_BUCKET"]
 GPU_POOL = "gpu-b200-cb"
-ACCOUNT = T.CFG["AWS_ACCOUNT_ID"]
-BENCH_URL = T.CFG["BENCH_REPO"]  # <account>.dkr.ecr.<region>.amazonaws.com/<project>/bench
-REGISTRY, BENCH = BENCH_URL.split("/", 1)
-PROJECT = BENCH.rsplit("/", 1)[0]
-MIRROR = f"{PROJECT}/sglang-runtime"
-MIRROR_URL = f"{REGISTRY}/{MIRROR}"
 
 
 def _gen_env_header() -> str:
@@ -212,61 +197,7 @@ def kubectl(w, argv):
     return fail("teardown fake: unmodelled kubectl call: %s" % " ".join(argv))
 
 
-def ecr_ids(images):
-    """The ``imageIds`` of ``list-images``: one entry per tag, a digest-only entry for an untagged image."""
-    ids = []
-    for im in images:
-        ids += [{"imageDigest": im["digest"], "imageTag": t} for t in im.get("tags", [])] or [{"imageDigest": im["digest"]}]
-    return ids
-
-
-def ecr(w, argv):
-    """``w["ecr"][<repository name>]`` = {"registry": <account>, "images": [{"digest", "tags", "children"}]}.
-
-    ``list-images`` lists every image (the CLI joins the pages; ``--no-paginate`` keeps the first 100);
-    ``batch-delete-image`` takes 1 to 100 ids from ``--image-ids file://`` and fails, per id, with ImageNotFound or
-    with ImageReferencedByManifestList while another image of the repository lists it in ``children`` (an index).
-    ``ecr_error`` fails every call with that error code, ``ecr_failure`` fails every id with that failure code.
-    """
-    op, name, reg = argv[1], opt(argv, "--repository-name"), opt(argv, "--registry-id")
-    call = {"list-images": "ListImages", "batch-delete-image": "BatchDeleteImage"}.get(op)
-    if call is None:
-        return fail("teardown fake: unmodelled aws ecr call: %s" % " ".join(argv))
-    if w.get("ecr_error"):
-        return fail("An error occurred (%s) when calling the %s operation: injected" % (w["ecr_error"], call), 254)
-    repo = w.get("ecr", {}).get(name)
-    if repo is None or repo["registry"] != reg:
-        return fail("An error occurred (RepositoryNotFoundException) when calling the %s operation: The repository with "
-                    "name '%s' does not exist in the registry with id '%s'" % (call, name, reg), 254)
-    if op == "list-images":
-        ids = ecr_ids(repo["images"])
-        return out({"imageIds": ids[:100] if "--no-paginate" in argv else ids})
-    spec = opt(argv, "--image-ids") or ""
-    if not spec.startswith("file://"):
-        return fail("teardown fake: batch-delete-image without --image-ids file://")
-    ids = json.loads(Path(spec[7:]).read_text())
-    w.setdefault("ecr_batches", []).append({"repo": name, "n": len(ids)})
-    if not 1 <= len(ids) <= 100:
-        return fail("An error occurred (InvalidParameterException) when calling the BatchDeleteImage operation: "
-                    "imageIds takes 1 to 100 items", 254)
-    deleted, failures = [], []
-    for i in ids:
-        live = [im["digest"] for im in repo["images"]]
-        referenced = {c for im in repo["images"] for c in im.get("children", [])}
-        d = i.get("imageDigest")
-        code = w.get("ecr_failure") or ("ImageNotFound" if d not in live else
-                                        "ImageReferencedByManifestList" if d in referenced else None)
-        if code:
-            failures.append({"imageId": i, "failureCode": code, "failureReason": "fake: " + code})
-            continue
-        repo["images"] = [im for im in repo["images"] if im["digest"] != d]
-        deleted.append(i)
-    return out({"imageIds": deleted, "failures": failures})
-
-
 def aws(w, argv):
-    if argv[:1] == ["ecr"]:
-        return ecr(w, argv)
     if argv[:2] == ["s3", "rm"] and len(argv) > 2 and argv[2].startswith("s3://"):
         name = argv[2][5:].split("/", 1)[0]
         b = w["buckets"].get(name)
@@ -353,30 +284,8 @@ def plain_bucket(keys: int) -> dict[str, Any]:
     return {"versioned": False, "current": names, "versions": [[k, "null"] for k in names], "markers": []}
 
 
-def digest(n: int, salt: int = 0) -> str:
-    """A synthetic image digest; a smaller ``n`` sorts first."""
-    return f"sha256:{salt:08x}{n:056x}"
-
-
-def images(tagged: int, *, two_tags: int = 0, children: int = 0, salt: int = 0) -> list[dict[str, Any]]:
-    """``tagged`` tagged images (the first ``two_tags`` with a second tag) and, with ``children``, that many untagged
-    child manifests listed before the tagged index that references them (the layout of a buildx multi-arch push)."""
-    out: list[dict[str, Any]] = [{"digest": digest(i, salt), "tags": [f"t{i}"] + ([f"t{i}-b"] if i < two_tags else [])}
-                                 for i in range(tagged)]
-    if children:
-        kids = [digest(10_000 + i, salt) for i in range(children)]
-        out += [{"digest": k, "tags": []} for k in kids]
-        out.append({"digest": digest(99_999, salt), "tags": ["index"], "children": kids})
-    return out
-
-
-def ecr_repo(imgs: list[dict[str, Any]]) -> dict[str, Any]:
-    return {"registry": ACCOUNT, "images": imgs}
-
-
 def world(**over: Any) -> dict[str, Any]:
-    """One GPU NodeClaim, a busy and an empty cpu-demo NodeClaim, cells in two namespaces, the two buckets, the bench
-    repository with two images."""
+    """One GPU NodeClaim, a busy and an empty cpu-demo NodeClaim, cells in two namespaces and the two buckets."""
     w: dict[str, Any] = {
         "dgds": {"s-agg": ["q38"], "s-dis-hic": ["q38"]},
         "nodeclaims": [
@@ -396,7 +305,6 @@ def world(**over: Any) -> dict[str, Any]:
             ],
         },
         "buckets": {RESULTS: versioned_bucket(600, 3, 250), MODELS: plain_bucket(12)},
-        "ecr": {BENCH: ecr_repo(images(2))},
         "page_size": 1000,
         "batches": [],
     }
@@ -452,10 +360,6 @@ def words(call: dict[str, Any]) -> list[str]:
 
 def kube(res: S.Result, verb: str, resource: str) -> list[dict[str, Any]]:
     return [c for c in tool_calls(res, "kubectl") if words(c)[:2] == [verb, resource]]
-
-
-def ecr_calls(res: S.Result, op: str | None = None) -> list[dict[str, Any]]:
-    return [c for c in tool_calls(res, "aws") if c["argv"][:1] == ["ecr"] and (op is None or c["argv"][1:2] == [op])]
 
 
 def out(res: S.Result) -> str:
@@ -621,8 +525,7 @@ def test_yes_runs_the_documented_order(tmp_path: Path) -> None:
     assert len(tf) == 1 and tf[0]["argv"][1:] == ["destroy"], tf
     assert Path(tf[0]["argv"][0].removeprefix("-chdir=")).resolve() == (S.REPO_ROOT / "terraform" / "cluster").resolve()
     assert tf[0]["seq"] > max(c["seq"] for c in tool_calls(res, "kubectl")), "the destroy comes after the GPU nodes are gone"
-    assert tf[0]["seq"] > max(c["seq"] for c in ecr_calls(res)), "and after the ECR repositories are empty"
-    assert [c["argv"][:2] for c in tool_calls(res, "aws") if c["argv"][:1] != ["ecr"]] == [], "the buckets wait for --after-destroy"
+    assert tool_calls(res, "aws") == [], "the buckets wait for --after-destroy"
     w = box.world()
     assert w["dgds"] == {}
     assert [c["name"] for c in w["nodeclaims"] if c["pool"] == GPU_POOL] == []
@@ -712,148 +615,6 @@ def test_a_gpu_node_that_stays_stops_the_run_before_the_destroy(tmp_path: Path) 
     assert tool_calls(res, "terraform") == []
 
 
-# ----------------------------------------------------------------------------- step 3: the ECR repositories
-def mirror_env(tmp: Path, **over: str | None) -> dict[str, str]:
-    """The generated env of a stack with the sglang-runtime mirror (create_runtime_mirror_repository = true)."""
-    return {"PLATFORM_ENV": str(env_file(tmp, **{"SGLANG_RUNTIME_REPO": MIRROR_URL, **over}))}
-
-
-def test_dry_run_prints_the_ecr_commands_between_the_gpu_nodes_and_the_destroy(tmp_path: Path) -> None:
-    res = Box(tmp_path).run("--destroy-cluster")
-    assert res.rc == 0, out(res)
-    text = res.stdout
-    listing = f"aws ecr list-images --registry-id {ACCOUNT} --repository-name {BENCH} --region {REGION}"
-    assert listing in text
-    assert f"aws ecr batch-delete-image --registry-id {ACCOUNT} --repository-name {BENCH} --region {REGION}" in text
-    assert text.find("delete nodeclaims") < text.find(listing) < text.find("terraform/cluster destroy")
-    step3 = text[text.find(listing):text.find("terraform/cluster destroy")]
-    assert "100" in step3, "the dry run names the batch size"
-    assert MIRROR not in text, "the default stack has no sglang-runtime repository"
-    assert "SGLANG_RUNTIME_REPO" in step3, "the dry run says why the mirror is not emptied"
-    mirror = Box(tmp_path / "m").run("--destroy-cluster", env=mirror_env(tmp_path / "m"))
-    assert mirror.rc == 0, out(mirror)
-    assert f"aws ecr list-images --registry-id {ACCOUNT} --repository-name {MIRROR} --region {REGION}" in mirror.stdout
-
-
-def test_yes_empties_the_bench_and_the_mirror_repositories_in_batches_of_at_most_100(tmp_path: Path) -> None:
-    w = world(ecr={BENCH: ecr_repo(images(230, two_tags=20, children=5)), MIRROR: ecr_repo(images(120, salt=1))})
-    box = Box(tmp_path, w)
-    res = box.run("--destroy-cluster", "--yes", env=mirror_env(tmp_path))
-    assert res.rc == 0, out(res)
-    after = box.world()
-    assert after["ecr"][BENCH]["images"] == [] and after["ecr"][MIRROR]["images"] == []
-    batches = after["ecr_batches"]
-    assert all(1 <= b["n"] <= 100 for b in batches), batches
-    assert len([b for b in batches if b["repo"] == BENCH]) >= 3, "236 images: at least three batches"
-    calls = ecr_calls(res)
-    for c in calls:
-        assert c["argv"][1] in ("list-images", "batch-delete-image"), c["argv"]
-        assert S.arg_value(c["argv"], "--registry-id") == ACCOUNT, c["argv"]
-        assert S.arg_value(c["argv"], "--region") == REGION, c["argv"]  # the harness' ambient AWS_REGION is eu-west-3
-        assert S.arg_value(c["argv"], "--repository-name") in (BENCH, MIRROR), c["argv"]
-    assert min(c["seq"] for c in calls) > max(c["seq"] for c in tool_calls(res, "kubectl")), "after the GPU nodes are gone"
-    tf = tool_calls(res, "terraform")
-    assert len(tf) == 1 and tf[0]["seq"] > max(c["seq"] for c in calls), "the destroy comes after the repositories are empty"
-
-
-def test_yes_without_destroy_cluster_empties_the_repositories_for_the_printed_destroy(tmp_path: Path) -> None:
-    box = Box(tmp_path)
-    res = box.run("--yes")
-    assert res.rc == 0, out(res)
-    assert box.world()["ecr"][BENCH]["images"] == []
-    assert tool_calls(res, "terraform") == []
-    assert "terraform/cluster destroy" in res.stdout
-
-
-def test_the_images_an_index_references_go_in_the_next_pass(tmp_path: Path) -> None:
-    box = Box(tmp_path, world(ecr={BENCH: ecr_repo(images(0, children=3))}))
-    res = box.run("--yes")
-    assert res.rc == 0, out(res)
-    assert box.world()["ecr"][BENCH]["images"] == []
-    assert len(ecr_calls(res, "batch-delete-image")) == 2, "pass 1 deletes the index, pass 2 its children"
-
-
-def test_a_pass_that_deletes_nothing_stops_the_run_before_the_destroy(tmp_path: Path) -> None:
-    a, b = digest(1), digest(2)
-    stuck = [{"digest": a, "tags": ["x"], "children": [b]}, {"digest": b, "tags": ["y"], "children": [a]}]
-    res = Box(tmp_path, world(ecr={BENCH: ecr_repo(stuck)})).run("--destroy-cluster", "--yes")
-    assert res.rc != 0, out(res)
-    assert "ImageReferencedByManifestList" in out(res)
-    assert len(ecr_calls(res, "batch-delete-image")) == 1, "no endless loop"
-    assert tool_calls(res, "terraform") == []
-
-
-@pytest.mark.parametrize(("over", "needle"), [({"ecr_error": "AccessDeniedException"}, "AccessDeniedException"),
-                                              ({"ecr_failure": "KmsError"}, "KmsError")],
-                         ids=["list-error", "delete-failure"])
-def test_an_ecr_error_stops_the_run_before_the_destroy(tmp_path: Path, over: dict[str, str], needle: str) -> None:
-    res = Box(tmp_path, world(**over)).run("--destroy-cluster", "--yes")
-    assert res.rc != 0, out(res)
-    assert needle in out(res)
-    assert len(ecr_calls(res, "batch-delete-image")) <= 1
-    assert tool_calls(res, "terraform") == []
-
-
-def test_a_repository_that_does_not_exist_is_skipped(tmp_path: Path) -> None:
-    res = Box(tmp_path, world(ecr={})).run("--destroy-cluster", "--yes", env=mirror_env(tmp_path))
-    assert res.rc == 0, out(res)
-    assert len(ecr_calls(res, "list-images")) == 2 and ecr_calls(res, "batch-delete-image") == []
-    assert re.search(r"(?i)does not exist|RepositoryNotFound", out(res))
-    assert len(tool_calls(res, "terraform")) == 1
-
-
-def test_only_the_repositories_of_the_generated_env_are_touched(tmp_path: Path) -> None:
-    decoys = {f"{PROJECT}/other": ecr_repo(images(3, salt=2)), "another-project/bench": ecr_repo(images(3, salt=3)),
-              "decoy/bench": ecr_repo(images(2, salt=4)), "decoy/sglang-runtime": ecr_repo(images(2, salt=5)),
-              MIRROR: ecr_repo(images(4, salt=6))}
-    box = Box(tmp_path, world(ecr={BENCH: ecr_repo(images(3)), **decoys}))
-    res = box.run("--destroy-cluster", "--yes",
-                  env={"BENCH_REPO": f"{REGISTRY}/decoy/bench", "SGLANG_RUNTIME_REPO": f"{REGISTRY}/decoy/sglang-runtime"})
-    assert res.rc == 0, out(res)
-    assert {S.arg_value(c["argv"], "--repository-name") for c in ecr_calls(res)} == {BENCH}
-    assert box.world()["ecr"][BENCH]["images"] == []
-    for name, before in decoys.items():
-        assert box.world()["ecr"][name] == before, f"{name} is not a repository of the generated env"
-
-
-BAD_REPOS = {
-    "bench-other-name": {"BENCH_REPO": f"{REGISTRY}/{PROJECT}/other"},
-    "bench-other-region": {"BENCH_REPO": BENCH_URL.replace(f".{REGION}.", ".eu-west-1.")},
-    "bench-public-registry": {"BENCH_REPO": f"public.ecr.aws/{BENCH}"},
-    "bench-no-registry": {"BENCH_REPO": BENCH},
-    "bench-shell": {"BENCH_REPO": BENCH_URL + ";rm"},
-    "bench-uppercase": {"BENCH_REPO": f"{REGISTRY}/{PROJECT.upper()}/bench"},
-    "bench-empty": {"BENCH_REPO": ""},
-    "mirror-is-bench": {"SGLANG_RUNTIME_REPO": BENCH_URL},
-    "mirror-other-project": {"SGLANG_RUNTIME_REPO": f"{REGISTRY}/other-project/sglang-runtime"},
-    "mirror-other-region": {"SGLANG_RUNTIME_REPO": MIRROR_URL.replace(f".{REGION}.", ".eu-west-1.")},
-    "registry-other-region": {"ECR_REGISTRY": REGISTRY.replace(f".{REGION}.", ".eu-west-1.")},
-    "registry-not-an-account": {"ECR_REGISTRY": "public.ecr.aws"},
-    "registry-missing": {"ECR_REGISTRY": None},
-}
-
-
-@pytest.mark.parametrize("over", list(BAD_REPOS.values()), ids=list(BAD_REPOS))
-def test_a_repository_that_is_not_the_bench_or_mirror_of_the_stack_is_refused_before_any_call(
-        tmp_path: Path, over: dict[str, str | None]) -> None:
-    res = Box(tmp_path).run("--yes", env={"PLATFORM_ENV": str(env_file(tmp_path, **over))})
-    assert res.rc == 1, out(res)
-    assert next(iter(over)) in out(res)
-    assert tool_calls(res) == []
-
-
-def test_the_cluster_run_needs_bench_repo_and_the_after_destroy_run_does_not(tmp_path: Path) -> None:
-    res = Box(tmp_path).run("--yes", env={"PLATFORM_ENV": str(env_file(tmp_path, BENCH_REPO=None))})
-    assert res.rc != 0 and "BENCH_REPO" in out(res), out(res)
-    assert tool_calls(res) == []
-    box = Box(tmp_path / "a")
-    before = box.world()["ecr"]
-    after = box.run("--after-destroy", "--yes", env={"PLATFORM_ENV": str(env_file(tmp_path / "a", BENCH_REPO=None))})
-    assert after.rc == 0, out(after)
-    assert ecr_calls(after) == [], "the repositories are gone with the cluster stack"
-    assert box.world()["ecr"] == before
-
-
 # ----------------------------------------------------------------------------- --after-destroy: the buckets
 def _bucket_names(res: S.Result) -> set[str]:
     names = set()
@@ -930,6 +691,44 @@ def test_a_delete_error_stops_the_run(tmp_path: Path) -> None:
     assert len([c for c in tool_calls(res, "aws") if c["argv"][:2] == ["s3api", "delete-objects"]]) == 1
 
 
+SYNC = f'aws s3 sync "s3://{RESULTS}/perf/" ./results --region {REGION}'
+
+
+def _reminder(text: str) -> list[str]:
+    """The lines that warn about the benchmark results under perf/ and give the command that copies them."""
+    return [ln for ln in text.splitlines() if "WARNING" in ln and f"s3://{RESULTS}" in ln and SYNC in ln]
+
+
+def test_after_destroy_warns_about_the_results_under_perf_before_it_empties_the_bucket(tmp_path: Path) -> None:
+    """benchmarks/perf.yaml uploads the results under perf/ of the results bucket, and this run deletes every object
+    version of that bucket: it says so, with the command that copies them, before the first delete."""
+    res = Box(tmp_path).run("--after-destroy", "--yes")
+    assert res.rc == 0, out(res)
+    lines = _reminder(res.stdout)
+    assert len(lines) == 1, res.stdout
+    assert 0 <= res.stdout.find(lines[0]) < res.stdout.find(f"+ aws s3 rm s3://{RESULTS} "), "the warning comes first"
+
+
+@pytest.mark.parametrize("mode", ["after-destroy-dry-run", "cluster-dry-run", "cluster", "from-terraform"])
+def test_the_dry_run_and_the_next_step_hint_carry_the_same_reminder(tmp_path: Path, mode: str) -> None:
+    warning = _reminder(Box(tmp_path / "ref").run("--after-destroy", "--yes").stdout)
+    assert len(warning) == 1
+    if mode == "after-destroy-dry-run":
+        res = Box(tmp_path).run("--after-destroy")
+        assert res.rc == 0, out(res)
+        assert _reminder(res.stdout) == warning, res.stdout
+        assert res.stdout.find(warning[0]) < res.stdout.find(f"[dry-run] aws s3 rm s3://{RESULTS} "), "before the plan of step 5"
+        return
+    box = fallback_box(tmp_path) if mode == "from-terraform" else Box(tmp_path)
+    res = box.run(*{"cluster-dry-run": (), "cluster": ("--yes",), "from-terraform": ("--from-terraform",)}[mode])
+    assert res.rc == 0, out(res)
+    lines = res.stdout.splitlines()
+    hint = [i for i, ln in enumerate(lines) if ln.startswith("next, once the cluster destroy has finished:")
+            and "--after-destroy" in ln and "--yes" in ln]
+    assert len(hint) == 1, res.stdout
+    assert any(warning[0] in ln for ln in lines[hint[0]:hint[0] + 2]), "the hint line, or the line after it, carries the reminder"
+
+
 # ----------------------------------------------------------------------------- --from-terraform: no generated env
 def tf_outputs(**values: Any) -> dict[str, Any]:
     """What ``terraform output -json`` prints for these outputs."""
@@ -937,7 +736,7 @@ def tf_outputs(**values: Any) -> dict[str, Any]:
             for k, v in values.items()}
 
 
-# The cluster state after the failed apply of live test 3: 27 of 29 outputs, no platform_env (and no ECR outputs).
+# The cluster state after a failed apply seen on a real cluster: 27 of 29 outputs, no platform_env.
 PARTIAL_CLUSTER = tf_outputs(cluster_name=CLUSTER, region=REGION, gpu_pools={GPU_POOL: {"gpus_per_node": 8}},
                              results_bucket_name=RESULTS, model_bucket_name=MODELS, vpc_id="vpc-0123456789abcdef0")
 BOOTSTRAP = tf_outputs(model_storage_bucket=MODELS, results_bucket=RESULTS, model_storage_bucket_arn=f"arn:aws:s3:::{MODELS}",
@@ -1113,33 +912,6 @@ def test_from_terraform_without_gpu_pools_needs_an_explicit_pool(tmp_path: Path)
     assert ok.rc == 0, out(ok)
 
 
-def test_from_terraform_empties_the_repositories_of_the_cluster_outputs(tmp_path: Path) -> None:
-    cluster = {**PARTIAL_CLUSTER, **tf_outputs(bench_ecr_repository_url=BENCH_URL, sglang_runtime_ecr_repository_url=MIRROR_URL)}
-    box = fallback_box(tmp_path, cluster=cluster, ecr={BENCH: ecr_repo(images(3)), MIRROR: ecr_repo(images(2, salt=1))})
-    res = box.run("--from-terraform", "--destroy-cluster", "--yes")
-    assert res.rc == 0, out(res)
-    assert box.world()["ecr"][BENCH]["images"] == [] and box.world()["ecr"][MIRROR]["images"] == []
-    destroy = [c for c in tool_calls(res, "terraform") if c["argv"][1:] == ["destroy"]]
-    assert len(destroy) == 1 and destroy[0]["seq"] > max(c["seq"] for c in ecr_calls(res))
-
-
-def test_from_terraform_without_repository_outputs_empties_nothing(tmp_path: Path) -> None:
-    box = fallback_box(tmp_path)  # the failed apply of live test 3: no ECR output in the state
-    before = box.world()["ecr"]
-    res = box.run("--from-terraform", "--yes")
-    assert res.rc == 0, out(res)
-    assert ecr_calls(res) == []
-    assert box.world()["ecr"] == before
-    assert "bench_ecr_repository_url" in res.stdout, "the run says that no output names a repository"
-
-
-def test_from_terraform_repository_outputs_pass_the_same_checks(tmp_path: Path) -> None:
-    cluster = {**PARTIAL_CLUSTER, **tf_outputs(bench_ecr_repository_url=f"public.ecr.aws/{BENCH}")}
-    res = fallback_box(tmp_path, cluster=cluster).run("--from-terraform", "--yes")
-    assert res.rc == 1, out(res)
-    assert tool_calls(res, "kubectl", "aws") == []
-
-
 # ----------------------------------------------------------------------------- the checklist
 @pytest.mark.parametrize("args", [(), ("--yes",), ("--after-destroy", "--yes")], ids=["dry-run", "cluster", "after-destroy"])
 def test_every_run_ends_with_the_checklist(tmp_path: Path, args: tuple[str, ...]) -> None:
@@ -1195,47 +967,15 @@ def test_deploy_teardown_documents_the_failed_apply_fallback() -> None:
         assert var in script, f"{var} is not read by scripts/{SCRIPT}"
 
 
-def test_troubleshooting_names_the_failed_apply_and_the_fallback() -> None:
-    text = (S.REPO_ROOT / "docs" / "TROUBLESHOOTING.md").read_text()
-    m = re.search(r"(?ms)^### `manifests/config/platform\.env` is missing\s*$(.*?)(?=^#{1,3} )", text)
-    assert m, "TROUBLESHOOTING.md keeps its platform.env entry"
-    flat = " ".join(m.group(1).split())
-    assert "terraform output platform_env" in flat or "platform_env" in flat
-    assert re.search(r"(?i)last terraform apply|failed|partial", flat), "the entry covers the failed apply"
-    assert "--from-terraform" in flat and "DEPLOY.md#teardown" in flat
-
-
-# ----------------------------------------------------------------------------- step 3 in the docs and the numbering
-def test_the_steps_are_numbered_out_of_six_in_the_script_and_in_the_deploy_section() -> None:
+# ----------------------------------------------------------------------------- the numbering
+def test_the_steps_are_numbered_out_of_five_in_the_script_and_in_the_deploy_section() -> None:
     script = SCRIPT_PATH.read_text()
     steps = re.findall(r'^\s*step "(\d)/(\d) ([^"]*)"', script, re.M)
-    assert sorted((n, m) for n, m, _ in steps) == [(str(i), "6") for i in range(1, 7)], steps
-    assert "ECR" in {n: t for n, _, t in steps}["3"], "step 3 empties the ECR repositories"
-    assert re.findall(r"^#\s+(\d)\. ", script, re.M) == [str(i) for i in range(1, 7)], "the header lists the six steps"
+    assert sorted((n, m) for n, m, _ in steps) == [(str(i), "5") for i in range(1, 6)], steps
+    assert "destroy the cluster" in {n: t for n, _, t in steps}["3"], "step 3 destroys the cluster"
+    assert re.findall(r"^#\s+(\d)\. ", script, re.M) == [str(i) for i in range(1, 6)], "the header lists the five steps"
     sec = _teardown_section()
-    for needle in ("# dry run of steps 1 to 4", "# steps 1 to 3, then prints the cluster destroy command",
-                   "# steps 1 to 4; Terraform still asks", "# step 5 for the results bucket, then prints step 6",
-                   "# step 5, bucket names from terraform/bootstrap"):
+    for needle in ("# dry run of steps 1 to 3", "# steps 1 and 2, then prints the cluster destroy command",
+                   "# steps 1 to 3; Terraform still asks", "# step 4 for the results bucket, then prints step 5",
+                   "# step 4, bucket names from terraform/bootstrap"):
         assert needle in sec, f"the Teardown section numbers the steps as the script: {needle!r}"
-
-
-def test_deploy_teardown_empties_the_ecr_repositories_before_the_cluster_destroy() -> None:
-    sec = _teardown_section()
-    for needle in ("BENCH_REPO", "SGLANG_RUNTIME_REPO", "aws ecr list-images", "aws ecr batch-delete-image",
-                   "force_delete = false", "RepositoryNotEmptyException", "ImageReferencedByManifestList"):
-        assert needle in sec, f"the Teardown section names {needle!r}"
-    manual = sec[sec.find("karpenter.sh/nodepool"):]
-    assert 0 < manual.find("batch-delete-image") < manual.find("terraform destroy"), (
-        "manual order: the GPU NodeClaims, the ECR images, then the cluster destroy")
-
-
-def test_readme_teardown_summary_empties_the_ecr_repositories_before_the_cluster_destroy() -> None:
-    m = re.search(r"(?ms)^## Cost and teardown\s*$(.*?)(?=^## )", (S.REPO_ROOT / "README.md").read_text())
-    assert m, "README.md keeps its '## Cost and teardown' section"
-    flat = " ".join(m.group(1).split())
-    assert 0 <= flat.find("NodeClaims") < flat.find("ECR repositories") < flat.find("destroy `terraform/cluster`"), flat
-
-
-def test_the_script_spells_no_ecr_host() -> None:
-    """tests/manifests/test_95_region_config.py: no ECR host in scripts/, so the registry comes from ECR_REGISTRY."""
-    assert not re.search(r"\.dkr\.ecr\.", SCRIPT_PATH.read_text()), "compare with ECR_REGISTRY, spell no host"

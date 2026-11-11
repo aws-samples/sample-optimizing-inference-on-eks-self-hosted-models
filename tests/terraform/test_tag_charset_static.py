@@ -1,16 +1,16 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
-"""RED tests: every literal tag key and value of the Terraform tree uses only characters KMS and IAM accept.
+"""Tests: every literal tag key and value of the Terraform tree uses only characters KMS and IAM accept.
 
 KMS ``CreateKey`` rejects a tag whose key or value has a character outside letters, digits, spaces and
 ``_ . : / = + - @`` (``TagException: Invalid tag``); IAM tags follow the same set. The mock providers of
-``terraform test`` do not enforce it, so a real apply was the first to fail, on the ``Purpose`` tag of the ECR key in
-``terraform/cluster/ecr.tf`` (it held ``/*``). Scope: every ``tags`` / ``*_tags`` map literal of ``terraform/**/*.tf``
+``terraform test`` do not enforce it, so a real apply was the first to fail, on a ``Purpose`` tag that held ``/*``.
+Scope: every ``tags`` / ``*_tags`` map literal of ``terraform/**/*.tf``
 and of the ``terraform.tfvars.example`` files, the maps the ``default_tags`` of each provider resolve to included.
 Interpolations ``${...}`` are replaced by a safe placeholder: the variables they read carry their own validations.
 
 The user's ``var.tags`` of both stacks is merged into ``local.tags`` (the ``default_tags`` of every provider), so it
-reaches the KMS key and the IAM roles too: its validation must refuse the same characters at plan time, with the
+reaches the IAM roles: its validation must refuse the same characters at plan time, with the
 character class of the IAM ``Tag`` API (``[\\p{L}\\p{Z}\\p{N}_.:/=+\\-@]*``), and both stacks must use the same
 condition. ``terraform/{bootstrap,cluster}/tests`` exercise it with ``terraform test`` (an unsafe key, an unsafe value
 and, in bootstrap, a safe map that plans).
@@ -107,17 +107,14 @@ def test_scanner_sees_the_tag_maps_of_the_tree() -> None:
         "bootstrap/main.tf": {"Project", "Environment", "Region", "Stack", "ManagedBy"},
         "bootstrap/buckets.tf": {"Purpose"},
         "cluster/main.tf": {"Project", "Environment", "Region", "Stack", "ManagedBy"},
-        "cluster/ecr.tf": {"Name", "Purpose"},
         "cluster/vpc.tf": {"kubernetes.io/role/elb", "kubernetes.io/role/internal-elb", "eks.amazonaws.com/discovery"},
         "cluster/nodepool.tf": {"Project", "nodeclass"},
         "cluster/modules/gpu-pools/main.tf": {"Project", "nodeclass"},
-        "cluster/iam-image-mirror.tf": {"Purpose"},
+        "cluster/iam-model-access.tf": {"Purpose"},
         "cluster/grafana-edge.tf": {"Name"},
     }
     missing = {f: sorted(want - keys.get(f, set())) for f, want in expected.items() if want - keys.get(f, set())}
     assert not missing, f"the tag scanner no longer sees these tag keys: {missing}"
-    ecr_purpose = [lit for _, k, lits in found["cluster/ecr.tf"] if k == "Purpose" for lit in lits]
-    assert len(ecr_purpose) == 3, f"expected the Purpose of the KMS key and of both ECR repositories: {ecr_purpose}"
 
 
 def test_every_literal_tag_key_and_value_is_kms_and_iam_safe() -> None:

@@ -5,8 +5,8 @@
 One token-shaped dummy (built from fragments at run time, so no token-shaped literal exists in the repository) is
 followed end to end through the four places a token could be written:
 
-1. the files ``scripts/gen_env.py`` generates (``platform.env``, ``sample.env``), with the token exported in the shell,
-   left by hand in an older ``sample.env``, or carried by a Terraform output (``HF_TOKEN`` is in ``FORBIDDEN_KEYS``);
+1. the file ``scripts/gen_env.py`` generates (``platform.env``), with the token exported in the shell,
+   left by hand in an older ``platform.env``, or carried by a Terraform output (``HF_TOKEN`` is in ``FORBIDDEN_KEYS``);
 2. what ``scripts/10-stage-model.sh`` renders (``--dry-run``) and applies, its stdout and stderr, every kubectl argv and
    payload, and every file under its ``TMPDIR``, ``HOME`` and working directory, also under ``bash -x`` and
    ``SHELLOPTS=xtrace``; the only allowed sink is the stdin of the one ``kubectl create secret`` call;
@@ -25,7 +25,7 @@ Existing tests this file deliberately does not repeat (they keep running in thei
   ``secretKeyRef`` and the Secret is deleted on every exit path (here: the same sinks under the traces, the base64
   forms, the files under HOME and the working directory, and the Job argv);
 * ``tests/scripts/test_152_stage_model_hygiene.py``: no tracked file holds a token-shaped string;
-* ``tests/scripts/test_153_stage_model_token_env_only.py``: a token in ``sample.env`` is ignored by the script;
+* ``tests/scripts/test_153_stage_model_token_env_only.py``: a token in ``platform.env`` is ignored by the script;
 * ``tests/terraform/test_cluster_static.py`` and ``test_model_stager_static.py``, ``model_stager.tftest.hcl``: no
   ``aws_secretsmanager_secret_version`` in ``terraform/cluster``, ``GetSecretValue`` is never on ``*``, the stager
   role has no Secrets Manager access (here: every stack, the exact grant, variables, outputs and Kubernetes Secrets).
@@ -160,34 +160,34 @@ def test_gen_env_never_copies_a_shell_token_into_the_generated_files(tmp_path: P
     monkeypatch.setenv("HUGGING_FACE_HUB_TOKEN", TOKEN)
     proc, root = G.run(tmp_path, G.tf_output())
     assert proc.returncode == 0, proc.stderr
-    plat, samp = G.outputs(root)
-    for path in (plat, samp):
-        assert not leaks(path.read_text()), f"{path.name} holds the token"
-        assert "HF_TOKEN" not in G.parse_env(path), f"{path.name} has an HF_TOKEN key"
+    plat = G.platform_file(root)
+    assert not leaks(plat.read_text()), f"{plat.name} holds the token"
+    assert "HF_TOKEN" not in G.parse_env(plat), f"{plat.name} has an HF_TOKEN key"
     assert not leaks(proc.stdout + proc.stderr)
     assert files_holding_the_token(tmp_path) == []
-    assert sorted(p.name for p in plat.parent.iterdir()) == ["platform.env"] and sorted(p.name for p in samp.parent.iterdir()) == ["sample.env"], "no temporary file is left next to the outputs"
+    assert G.files_under(root) == [plat], "no temporary file is left next to the output"
 
 
-def test_regenerating_drops_a_token_written_by_hand_into_sample_env(tmp_path: Path) -> None:
-    _, samp = G.outputs(tmp_path / "repo")
-    samp.parent.mkdir(parents=True)
-    samp.write_text(f"MODEL_ID=x/y\nHF_TOKEN={TOKEN}\n")
+def test_regenerating_drops_a_token_written_by_hand_into_platform_env(tmp_path: Path) -> None:
+    plat = G.platform_file(tmp_path / "repo")
+    plat.parent.mkdir(parents=True)
+    plat.write_text(f"MODEL_ID=x/y\nHF_TOKEN={TOKEN}\n")
     proc, root = G.run(tmp_path, G.tf_output())
     assert proc.returncode == 0, proc.stderr
-    assert not leaks(G.outputs(root)[1].read_text()), "sample.env is generated and overwritten: a hand-written token must not survive"
+    assert not leaks(G.platform_file(root).read_text()), "platform.env is generated and overwritten: a hand-written token must not survive"
 
 
 @pytest.mark.parametrize("where", ["platform_env", "sample_env"])
 def test_a_token_output_is_refused_and_earlier_files_stay_byte_identical(tmp_path: Path, where: str) -> None:
     proc, root = G.run(tmp_path, G.tf_output())
     assert proc.returncode == 0, proc.stderr
-    before = {p: p.read_bytes() for p in G.outputs(root)}
+    before = G.platform_file(root).read_bytes()
     bad = G.tf_output(G.platform_env(HF_TOKEN=TOKEN), None) if where == "platform_env" else G.tf_output(None, G.sample_env(HF_TOKEN=TOKEN))
     proc, _ = G.run(tmp_path, bad)
     assert proc.returncode != 0 and "HF_TOKEN" in proc.stderr
     assert not leaks(proc.stdout + proc.stderr), "a refusal names the key, never the value"
-    assert {p: p.read_bytes() for p in G.outputs(root)} == before, "a refusal rewrites nothing"
+    assert G.platform_file(root).read_bytes() == before, "a refusal rewrites nothing"
+    assert G.files_under(root) == [G.platform_file(root)], "and leaves no other file"
     assert files_holding_the_token(root) == [], "no temporary file holds the token"
 
 
@@ -237,7 +237,7 @@ def test_the_staging_tool_starts_no_child_process() -> None:
 
 def test_end_to_end_gen_env_then_staging_keeps_the_token_in_the_process_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, box: H.Box) -> None:
     monkeypatch.setenv("HF_TOKEN", TOKEN)
-    proc, _ = G.run(tmp_path, G.tf_output(), "--platform-out", str(box.platform_env), "--sample-out", str(box.sample_env))
+    proc, _ = G.run(tmp_path, G.tf_output(), "--platform-out", str(box.platform_env))
     assert proc.returncode == 0, proc.stderr
     for mode in (["--dry-run"], []):
         res = stage(box, mode, "plain", KUBE_CONTEXT=GEN_CLUSTER)

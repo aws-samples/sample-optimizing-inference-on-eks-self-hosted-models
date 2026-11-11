@@ -1,7 +1,7 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
 #
-# RED tests: the validation of var.tags (terraform/bootstrap/variables.tf). The extra tags are merged into the
+# Tests: the validation of var.tags (terraform/bootstrap/variables.tf). The extra tags are merged into the
 # default_tags of the provider, and KMS and IAM reject a tag key or value with a character outside letters, digits,
 # spaces and _ . : / = + - @ (TagException: Invalid tag at apply; the mock providers never check it). The plan must
 # refuse them first. ../cluster uses the same condition (tests/terraform/test_tag_charset_static.py), so the safe map

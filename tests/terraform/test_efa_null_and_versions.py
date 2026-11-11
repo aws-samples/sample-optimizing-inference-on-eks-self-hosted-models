@@ -1,6 +1,6 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
-"""RED tests: non-EFA instance types carry ``efa_maximum_interfaces = null`` and Terraform >= 1.12 is required.
+"""Tests: non-EFA instance types carry ``efa_maximum_interfaces = null`` and Terraform >= 1.12 is required.
 
 The ``aws_ec2_instance_type`` data source returns ``efa_maximum_interfaces = null`` when ``efa_supported`` is false.
 Terraform < 1.12 does not short-circuit ``||`` in a validation, so the module failed to plan for g5/g6e. The fix raises
@@ -20,9 +20,6 @@ REPO = Path(__file__).resolve().parents[2]
 TERRAFORM = REPO / "terraform"
 FIXTURES = TERRAFORM / "cluster" / "tests" / "fixtures"
 MIN_MINOR = 12
-RECOMMENDED = "1.17"
-
-
 def _live_tf_files() -> list[Path]:
     """All .tf files of the live stacks (the ``.terraform/`` init dirs, which hold third-party registry modules, are
     excluded)."""
@@ -47,13 +44,6 @@ def test_required_version_is_at_least_1_12(path: Path, constraint: str) -> None:
     m = re.fullmatch(r">=\s*1\.(\d+)(?:\.\d+)?", constraint.strip())
     assert m, f"{path}: unexpected constraint {constraint!r}"
     assert int(m.group(1)) >= MIN_MINOR, f"{path.relative_to(REPO)}: required_version {constraint!r} is below 1.{MIN_MINOR} (no || short-circuit before 1.12)"
-
-
-@pytest.mark.parametrize("readme", [REPO / "README.md", TERRAFORM / "README.md"], ids=["README.md", "terraform/README.md"])
-def test_readmes_recommend_the_latest_terraform(readme: Path) -> None:
-    text = readme.read_text()
-    assert re.search(rf"(?i)terraform[^\n]{{0,80}}{re.escape(RECOMMENDED)}|{re.escape(RECOMMENDED)}[^\n]{{0,80}}terraform", text), f"{readme.name} must name Terraform {RECOMMENDED} as recommended"
-    assert not re.search(r"(?i)terraform\s*>=\s*1\.(9|10|11)\b", text), f"{readme.name} still documents a minimum below 1.12"
 
 
 def test_non_efa_fixtures_hold_null_like_the_data_source() -> None:

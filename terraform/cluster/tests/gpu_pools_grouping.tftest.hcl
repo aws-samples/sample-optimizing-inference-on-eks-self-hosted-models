@@ -1,7 +1,7 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
 #
-# RED tests for the gpu-pools module: grouping of GPU instance types by identical GPU/network layout.
+# Tests for the gpu-pools module: grouping of GPU instance types by identical GPU/network layout.
 #
 # CONTRACT of terraform/cluster/modules/gpu-pools (pure module: plain input variables, NO data sources, NO
 # resources; the root module wires data.aws_ec2_instance_type / offerings / capacity-block reservations in).

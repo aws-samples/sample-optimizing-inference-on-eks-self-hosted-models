@@ -1,14 +1,11 @@
-# Spec 8.4 step 2: S3 -> NVMe prefetch at block start, pinned to the GPU node.
-# Lays the weights out as a Hugging Face hub cache (HF_HUB_CACHE=/models/hub in the
-# workers; refs/main holds the pinned revision) and writes the .done marker LAST.
-# The ServiceAccount and its Pod Identity (read-only on the model bucket) are owned by
-# Terraform (iam-model-access.tf, the cluster stack). The defaults below are the model of the platform
-# config (MODEL_ID, MODEL_REVISION and MODEL_S3_URI of manifests/config, as add-worker.yaml pins it; the
-# bucket comes from the config through replacements); 11-prefetch.sh sets MODEL_S3_URI/MODEL_REVISION/
-# MODEL_CACHE_REPO per run.
-# Idempotent: exits at once when the marker of the pinned revision is present (each full
-# read of ~465 GB costs retrieval once the prefix is in STANDARD_IA), unless FORCE=1.
-# The CRT S3 client (target_bandwidth 40Gb/s) keeps the ~465 GB prefetch inside the H+2 checkpoint.
+# S3 -> local NVMe copy of the model weights, pinned to the GPU node. Lays the weights out as a
+# Hugging Face hub cache (HF_HUB_CACHE=/models/hub in the workers; refs/main holds the pinned
+# revision) and writes the .done marker last.
+# The ServiceAccount and its Pod Identity (read-only on the model bucket) are created by
+# terraform/cluster/iam-model-access.tf.
+# scripts/11-prefetch.sh sets MODEL_S3_URI, MODEL_REVISION, MODEL_CACHE_REPO, AWS_REGION and FORCE
+# on every run; the bucket of MODEL_S3_URI and AWS_REGION below are placeholders.
+# Idempotent: exits at once when the marker of the pinned revision is present, unless FORCE=1.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -53,12 +50,10 @@ spec:
               rm -f "$repo/.done"
               mkdir -p "$snap" "$repo/refs"
               echo "source=$src target=$snap"
-              # _manifest.json was staged in another region and names that bucket: never read it.
               aws s3 ls "${src}.done" > /dev/null || { echo "FATAL: ${src}.done missing (staging incomplete)" >&2; exit 1; }
-              # FT-4c: force the CRT S3 client with an explicit target bandwidth (measured ~1.7 GB/s
-              # vs ~80 MB/s with the classic knobs). `auto` silently falls back to classic off a
-              # fixed instance-type list; the classic knobs (max_concurrent_requests,
-              # multipart_chunksize, ...) are not set because CRT ignores or regresses on them.
+              # The CRT transfer client, set explicitly: the AWS CLI S3 configuration guide says the
+              # `auto` resolution may change between CLI versions and that setting `crt` guarantees it
+              # (https://docs.aws.amazon.com/cli/latest/topic/s3-config.html).
               aws configure set default.s3.preferred_transfer_client crt
               aws configure set default.s3.target_bandwidth 40Gb/s
               start=$(date +%s)

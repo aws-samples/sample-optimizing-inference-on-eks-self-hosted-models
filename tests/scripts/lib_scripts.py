@@ -3,7 +3,7 @@
 """Harness for the shell-script contract tests.
 
 Scripts are executed for real (bash) with *stub* executables placed first on PATH:
-``kubectl``, ``curl``, ``aws``, ``aiperf``, ``demo-bench``, ``uv``, ``sleep`` and ``date``.
+``kubectl``, ``curl``, ``aws``, ``aiperf``, ``uv``, ``sleep`` and ``date``.
 Every stub appends one JSON line (tool, argv, seq) to ``$QA_STUB_DIR/calls.jsonl`` and
 answers from ``$QA_STUB_DIR/config.json``.  ``sleep`` advances a fake clock that
 ``date +%s`` honours, so retry/backoff loops finish instantly but remain observable.
@@ -30,13 +30,10 @@ SCRIPTS_DIR = Path(os.environ.get("SCRIPTS_DIR", REPO_ROOT / "scripts"))
 
 REQUIRED_SCRIPTS = (
     "11-prefetch.sh",
-    "13-prepull.sh",
-    "50-toggle-router.sh",
-    "preflight-flags.sh",
 )
 
 STUB_SOURCE = r'''#!__PYTHON__
-import fcntl, hashlib, json, os, re, subprocess, sys, time
+import fcntl, json, os, re, subprocess, sys, time
 from pathlib import Path
 
 D = Path(os.environ["QA_STUB_DIR"])
@@ -247,54 +244,8 @@ def kubectl(argv):
     return CFG.get("kubectl_default_rc", 0)
 
 
-def demo_bench(argv):
-    """Fake `demo-bench`: only `trace schedule` is modelled (deterministic timestamp per row)."""
-    if argv[:2] != ["trace", "schedule"]:
-        return 0
-    opts, i = {}, 2
-    while i < len(argv):
-        a = argv[i]
-        if a.startswith("--"):
-            k, eq, v = a[2:].partition("=")
-            if not eq:
-                v = argv[i + 1] if i + 1 < len(argv) else None
-                i += 1
-            opts[k] = v
-        i += 1
-    for req in ("in", "out", "rate", "seed"):
-        if not opts.get(req):
-            sys.stderr.write("demo-bench: error: --%s is required\n" % req)
-            return 2
-    if CFG.get("schedule_rc", 0):
-        sys.stderr.write("demo-bench: schedule generation failed\n")
-        return int(CFG["schedule_rc"])
-    try:
-        rate = float(opts["rate"])
-        seed = int(opts["seed"])
-        rows = [json.loads(l) for l in Path(opts["in"]).read_text().splitlines() if l.strip()]
-    except (ValueError, OSError) as exc:
-        sys.stderr.write("demo-bench: error: %s\n" % exc)
-        return 2
-    if rate <= 0:
-        sys.stderr.write("demo-bench: error: --rate must be > 0\n")
-        return 2
-    out = []
-    for n, row in enumerate(rows):
-        row["timestamp"] = int(n * 1000 / rate)
-        row["arrival"] = opts.get("arrival", "default")
-        row["schedule_seed"] = seed
-        out.append(json.dumps(row, sort_keys=True))
-    text = "\n".join(out) + "\n"
-    Path(opts["out"]).write_text(text)
-    with open(D / "schedule_outputs.jsonl", "a") as fh:
-        fh.write(json.dumps({"out": opts["out"], "sha256": hashlib.sha256(text.encode()).hexdigest(), "opts": opts}) + "\n")
-    return 0
-
-
 def main():
     log()
-    if NAME == "demo-bench":
-        return demo_bench(ARGV)
     if NAME == "sleep":
         delta = sum(parse_duration(a) for a in ARGV)
         def adv(st):
@@ -319,7 +270,7 @@ def main():
 sys.exit(main())
 '''
 
-STUB_NAMES = ("kubectl", "curl", "aws", "aiperf", "demo-bench", "uv", "sleep", "date")
+STUB_NAMES = ("kubectl", "curl", "aws", "aiperf", "uv", "sleep", "date")
 
 
 def pod(
@@ -419,10 +370,6 @@ class Result:
             or (c["tool"] == "kubectl" and any(a == "aiperf" or a.endswith("/aiperf") for a in c["argv"]))
         ]
 
-    def schedule_calls(self) -> list[dict[str, Any]]:
-        """Calls to `demo-bench trace schedule`."""
-        return [c for c in self.calls if c["tool"] == "demo-bench" and c["argv"][:2] == ["trace", "schedule"]]
-
     def aiperf_text(self) -> str:
         return "\n".join(" ".join(c["argv"]) for c in self.aiperf_calls())
 
@@ -474,7 +421,6 @@ class Sandbox:
 
     def reset(self) -> None:
         """Clear the call log and the fake clock."""
-        (self.state_dir / "schedule_outputs.jsonl").write_text("")
         (self.state_dir / "calls.jsonl").write_text("")
         (self.state_dir / "state.json").write_text("{}")
         (self.state_dir / "applied.jsonl").write_text("")
@@ -482,13 +428,6 @@ class Sandbox:
     def clock(self) -> float:
         """Seconds the fake clock advanced (sum of stub `sleep` and timed-out `kubectl wait`)."""
         return float(json.loads((self.state_dir / "state.json").read_text() or "{}").get("clock", 0.0))
-
-    def schedule_outputs(self) -> list[dict[str, Any]]:
-        """Files written by the fake `demo-bench trace schedule` (path, sha256, parsed options)."""
-        path = self.state_dir / "schedule_outputs.jsonl"
-        if not path.exists():
-            return []
-        return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
     def calls(self) -> list[dict[str, Any]]:
         calls = [
@@ -552,7 +491,7 @@ TRACE_ROWS = [
 def series_env(root: Path, **overrides: str) -> dict[str, str]:
     """Environment of a fixed-schedule series run: raw (timestamp-less) trace, results dir, RATE and SEED.
 
-    Creates ``<root>/raw-trace.jsonl`` (once) and returns env vars for ``30-run.sh``.
+    Creates ``<root>/raw-trace.jsonl`` (once) and returns the env vars of such a run.
     Pass ``KEY=None``-style removal by omitting; use ``overrides`` to replace values.
     """
     root.mkdir(parents=True, exist_ok=True)

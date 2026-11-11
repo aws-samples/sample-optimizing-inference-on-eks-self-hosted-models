@@ -1,6 +1,6 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
-"""RED tests of ``tools/stage_model/stage_model.py``: Hugging Face -> S3 model staging (see conftest.py for the contract)."""
+"""Tests of ``tools/stage_model/stage_model.py``: Hugging Face -> S3 model staging (see conftest.py for the contract)."""
 
 from __future__ import annotations
 
@@ -143,7 +143,7 @@ def test_bin_weights_are_kept_when_the_repo_has_no_safetensors(h: Harness, sm: M
 
 @pytest.mark.parametrize("path", ["LICENSE", "LICENSE.txt", "LICENSE.md", "NOTICE", "COPYING", "USE_POLICY.md"])
 def test_licence_files_are_staged_with_or_without_an_extension(sm: ModuleType, path: str) -> None:
-    """Live test 2 (D4): an extensionless ``LICENSE`` was left out of the staged model."""
+    """Found on a real cluster: an extensionless ``LICENSE`` was left out of the staged model."""
     tree = [tree_entry("model.safetensors", b"W" * 64, lfs=True), tree_entry(path, b"terms", lfs=False)]
     assert path in {f.path for f in sm.select_files(tree)}
 
@@ -162,10 +162,10 @@ def test_gated_without_token_fails_fast_with_actionable_message(h: Harness, sm: 
     assert "HF_TOKEN" in out
     assert re.search(r"licen[cs]e", out, re.I), "tell the user to accept the licence on the model page"
     assert MODEL in out
-    # gen_env.py overwrites config/sample.env, so a token there is ignored (tests/scripts/test_153): the message
-    # must send the reader to the shell, never to sample.env.
+    # gen_env.py overwrites platform.env, so a token there is ignored (tests/scripts/test_153): the message
+    # must send the reader to the shell, never to platform.env.
     assert re.search(r"export\s+HF_TOKEN", out), "tell the user to export HF_TOKEN in the shell"
-    assert "sample.env" not in out, "a token in the generated sample.env is ignored; do not point the reader there"
+    assert "platform.env" not in out, "a token in the generated platform.env is ignored; do not point the reader there"
     assert hf.names("hf_hub_download") == [] and hf.names("list_repo_tree") == [], "fail fast: nothing is listed or downloaded"
     assert s3.write_ops() == [], "nothing is written to S3"
 

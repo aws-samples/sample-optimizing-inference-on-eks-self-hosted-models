@@ -13,17 +13,17 @@
 # in S3 with the size the Hub lists are skipped, so a failed run resumes. A previous Job is replaced
 # only once it is finished.
 #   --dry-run  print the ConfigMap and the Job (nothing else on stdout); no cluster call
-# Inputs (the process environment wins over the files):
-#   SAMPLE_ENV      default config/sample.env: MODEL_ID, MODEL_REVISION (40-hex commit sha, never a
-#                   branch), MODEL_S3_PREFIX and MODEL_S3_URI (default s3://<MODEL_BUCKET>/<prefix>,
-#                   prefix default <MODEL_ID>/<MODEL_REVISION>)
-#   PLATFORM_ENV    MODEL_BUCKET and AWS_REGION (read by lib/common.sh)
+# Inputs (the process environment wins over the file):
+#   PLATFORM_ENV    default manifests/config/platform.env (read by lib/common.sh): MODEL_ID,
+#                   MODEL_REVISION (40-hex commit sha, never a branch), MODEL_S3_PREFIX and MODEL_S3_URI
+#                   (default s3://<MODEL_BUCKET>/<prefix>, prefix default <MODEL_ID>/<MODEL_REVISION>),
+#                   MODEL_BUCKET and AWS_REGION
 #   STAGE_IMAGE     Python image of the Job pinned by digest, <repo>:<tag>@sha256:<64 hex>; the
 #                   default is a placeholder the preflight refuses
 #   STAGE_DISK_GIB  scratch disk of the pod (default 50): the largest file of the repo must fit,
 #                   since the Job keeps one file at a time on disk
 #   HF_TOKEN        optional, gated models only: from the process environment ONLY (export it in the
-#                   shell). The env files are generated and may be shared, so a token in them is ignored.
+#                   shell). The env file is generated and may be shared, so a token in it is ignored.
 # HF_TOKEN (gated models only) never reaches argv, a manifest, stdout, a log or a shell trace: when it
 # is set it goes to kubectl on stdin as the ephemeral Secret node-ops/hf-token, which the Job reads
 # through an optional secretKeyRef, and a trap deletes the Secret when this script exits (Job done or
@@ -55,7 +55,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/common.sh
 source "$SCRIPT_DIR/lib/common.sh"
 
-SAMPLE_ENV="${SAMPLE_ENV:-$REPO_ROOT/config/sample.env}"
 STAGE_IMAGE="${STAGE_IMAGE:-public.ecr.aws/docker/library/python:3.12-slim@sha256:<DIGEST>}"
 STAGE_DISK_GIB="${STAGE_DISK_GIB:-50}"
 TOOL_DIR="$REPO_ROOT/tools/stage_model"
@@ -80,20 +79,11 @@ case $# in
 esac
 
 # ---------------------------------------------------------------- inputs (env file, then process env)
-file_model_id=""
-file_model_revision=""
-file_model_s3_prefix=""
-file_model_s3_uri=""
-if [ -f "$SAMPLE_ENV" ]; then
-  while IFS='=' read -r key value || [ -n "$key" ]; do
-    case "$key" in
-      MODEL_ID) file_model_id="$value" ;;
-      MODEL_REVISION) file_model_revision="$value" ;;
-      MODEL_S3_PREFIX) file_model_s3_prefix="$value" ;;
-      MODEL_S3_URI) file_model_s3_uri="$value" ;;
-    esac
-  done <"$SAMPLE_ENV"
-fi
+# The platform env as lib/common.sh parsed it (CFG_*); its HF_TOKEN, if any, is never read.
+file_model_id="${CFG_MODEL_ID:-}"
+file_model_revision="${CFG_MODEL_REVISION:-}"
+file_model_s3_prefix="${CFG_MODEL_S3_PREFIX:-}"
+file_model_s3_uri="${CFG_MODEL_S3_URI:-}"
 model_id="${env_model_id:-$file_model_id}"
 revision="${env_model_revision:-$file_model_revision}"
 hf_token="$env_hf_token"
@@ -117,7 +107,7 @@ fi
 disk_gib="$((10#$STAGE_DISK_GIB))"
 
 case "$model_id" in
-  '') die "MODEL_ID is not set (<org>/<name>, in $SAMPLE_ENV or the environment)" ;;
+  '') die "MODEL_ID is not set (<org>/<name>, in $PLATFORM_ENV or the environment)" ;;
   # Path-ish parts are refused too: the default S3 prefix is <MODEL_ID>/<MODEL_REVISION>.
   */*/* | /* | */ | ./* | ../* | */. | */.. | *[!A-Za-z0-9._/-]*)
     die "MODEL_ID must be <org>/<name> of [A-Za-z0-9._-], neither part . or .. (got '$model_id')"
@@ -168,7 +158,7 @@ case "/$uri_prefix/" in
   *//* | */./* | */../* | *[!A-Za-z0-9._/-]*) die "MODEL_S3_URI: invalid prefix '$uri_prefix' (segments of A-Za-z0-9._- separated by single slashes)" ;;
 esac
 if [ -n "$generated_uri" ] && [ "$uri" != "$generated_uri" ]; then
-  log "warning: target $uri differs from MODEL_S3_URI of $SAMPLE_ENV; the model-stager role writes only under the model_s3_prefix applied in terraform/cluster (else AccessDenied)"
+  log "warning: target $uri differs from MODEL_S3_URI of $PLATFORM_ENV; the model-stager role writes only under the model_s3_prefix applied in terraform/cluster (else AccessDenied)"
 fi
 [ -n "$region" ] || die "AWS_REGION is empty: fill $PLATFORM_ENV (or set MODEL_BUCKET_REGION)"
 case "$region" in

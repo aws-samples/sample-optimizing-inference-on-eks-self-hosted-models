@@ -1,6 +1,6 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
-"""M1: a fresh ``git clone`` runs the suite with no untracked file.
+"""A fresh ``git clone`` runs the suite with no untracked file.
 
 Builds a scratch clone (``git clone`` of this repository, so tags and history are real), overlays the CURRENT
 tracked + not-ignored files of this working tree (so uncommitted work is verified too) and removes everything that
@@ -31,21 +31,20 @@ import sanitize_scan as S
 REPO = S.REPO_ROOT
 
 CRITICAL_MODULES = (
-    "test_95_region_config", "test_410_trackq_layout_and_config", "test_411_trackq_cells_vs_reference_and_knobs",
-    "test_412_trackq_rendered_drift_and_goldens", "test_420_examples",
+    "test_95_region_config", "test_410_layout_and_config", "test_411_cells_vs_reference_and_knobs",
+    "test_420_examples",
 )
 CRITICAL_SCOPE = [
-    "tests/manifests/test_95_region_config.py", "tests/manifests/test_410_trackq_layout_and_config.py",
-    "tests/manifests/test_411_trackq_cells_vs_reference_and_knobs.py", "tests/manifests/test_412_trackq_rendered_drift_and_goldens.py",
-    "tests/manifests/test_420_examples.py", "tests/manifests/test_190_prepull.py", "tests/manifests/test_290_matrix_driver_layout.py",
-    "tests/manifests/test_300_demo_rerender.py", "tests/scripts/test_108_w3_16k_workload.py", "tests/scripts/test_132_q38_prefetch.py",
+    "tests/manifests/test_95_region_config.py", "tests/manifests/test_410_layout_and_config.py",
+    "tests/manifests/test_411_cells_vs_reference_and_knobs.py", "tests/manifests/test_420_examples.py", "tests/scripts/test_132_q38_prefetch.py",
     "tests/scripts/test_140_gen_env.py", "tests/scripts/test_152_stage_model_hygiene.py", "tests/terraform",
     "tests/publish/test_sanitization_guards.py", "tests/publish/test_clean_clone_config.py",
 ]
 FULL_SCOPE = ["tests/manifests", "tests/scripts", "tests/terraform", "tests/publish/test_sanitization_guards.py",
               "tests/publish/test_clean_clone_config.py"]
 MAX_SKIPPED_FRACTION_IN_CRITICAL = 0.05  # cases that need inputs outside the repository are the only expected skips
-MIN_PASSED = {"critical": 600, "full": 3000}
+# Each floor is about 5% below the passed count measured with Dynamo v1.6.1 (critical 476, full 835); it only has to catch a clone that skipped most of the suite.
+MIN_PASSED = {"critical": 450, "full": 790}
 
 
 def _git(*args: str, cwd: Path) -> str:
@@ -86,7 +85,7 @@ def clean_clone_report(tmp_path_factory: pytest.TempPathFactory) -> Iterator[lib
         pytest.skip("SKIP_CLEAN_CLONE is set")
     dynamo = _dynamo_repo()
     if dynamo is None:
-        pytest.skip("the CRD tests need a Dynamo checkout at v1.5.1: set DYNAMO_REPO (not available here)")
+        pytest.skip("the CRD tests need a Dynamo checkout at v1.6.1: set DYNAMO_REPO (not available here)")
     work = tmp_path_factory.mktemp("clean-clone")
     clone = work / "clone"
     lib_proc.run(["git", "clone", "--quiet", "--no-hardlinks", str(REPO), str(clone)], check=True)
