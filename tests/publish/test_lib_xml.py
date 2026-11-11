@@ -5,7 +5,7 @@
 The refused documents are the classic attacks: the billion-laughs entity bomb, an external entity (XXE), an external
 parameter entity and an unparsed entity. The accepted ones are what the suites parse: a pytest JUnit report, the
 draw.io file and SVG with a DOCTYPE, namespaces, character references and mixed content. The helper parses with
-defusedxml (pinned in ``tests/requirements-test.txt``) and imports nothing from the standard library ``xml`` package
+defusedxml (pinned in ``requirements-test.txt``) and imports nothing from the standard library ``xml`` package
 (static analysis, Semgrep rule ``python.lang.security.use-defused-xml``).
 """
 
@@ -95,7 +95,7 @@ def test_lib_xml_parses_with_defusedxml_and_imports_nothing_from_the_xml_package
 
 @pytest.mark.parametrize("name", sorted(REFUSED))
 def test_the_refusals_are_the_defusedxml_exceptions(tmp_path: Path, name: str) -> None:
-    import defusedxml  # pinned in tests/requirements-test.txt and in the dev group of tools/demo_bench
+    import defusedxml  # pinned in requirements-test.txt
 
     assert issubclass(lib_xml.ForbiddenXmlError, defusedxml.DefusedXmlException)
     with pytest.raises(defusedxml.DefusedXmlException):

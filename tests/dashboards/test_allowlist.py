@@ -10,7 +10,7 @@ import _lib as L
 FORBIDDEN = {"sglang:cache_hit_rate", "dynamo_frontend_worker_active_requests", "dynamo_component_router_kv_hit_rate_bucket_bare"}
 
 
-def test_dynamo_allowlist_matches_catalog_at_v151():
+def test_dynamo_allowlist_matches_catalog_at_v161():
     cat = set(re.findall(r'<ParamField path="([a-z_0-9]+)"', L.git_show(L.CATALOG_PATH)))
     snap = L._read_list(L.HERE / "allowlist_dynamo.txt")
     assert snap == cat

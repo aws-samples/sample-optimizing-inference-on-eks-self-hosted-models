@@ -9,7 +9,7 @@ Known issues from the end-to-end tests of this sample, with the fix for each. Th
 
 Terraform older than 1.12 does not short-circuit `||`. For a type without EFA (for example `g5.xlarge`) the
 `aws_ec2_instance_type` data source returns `efa_maximum_interfaces = null`, and the plan fails. Use Terraform 1.12 or
-newer; 1.17 is the tested version. The stacks declare `required_version = ">= 1.12"`.
+newer (tested with 1.12.2 and 1.17.0). The stacks declare `required_version = ">= 1.12"`.
 
 ### GPU node never starts: `InsufficientInstanceCapacity`
 
@@ -20,11 +20,9 @@ another type, or buy reserved capacity (a Capacity Block or an ODCR). Nothing is
 
 ### Capacity Block or ODCR not picked up as expected
 
-A NodeClass that selects a reservation (its `capacityReservationSelectorTerms`, rendered for `capacity-block` and `odcr`)
-turns off the automatic use of open ODCRs for the whole cluster, so one stack has one purchase model. For a capacity
-block, the AZ and the pool size come from the block; an expired block stops counting, and the pool falls back to one
-node (or `gpu_max_nodes`). Remove its ID once `aws ec2 describe-capacity-reservations` no longer returns it. For an ODCR, set `gpu_az_ids`
-and `gpu_max_nodes`: no data source exposes those facts.
+What each purchase model needs from you is in [DEPLOY.md](DEPLOY.md#prerequisites). What Terraform renders for it (the
+`capacityReservationSelectorTerms` of the NodeClass, the pool size once a block expires) is in
+[Capacity types](../terraform/README.md#capacity-types).
 
 ### A GPU pool is renamed or replaced after you change `gpu_instance_types`
 
@@ -74,34 +72,6 @@ the domain you own and the ARN of an issued ACM certificate in `us-east-1` that 
 certificates from that Region). Or leave both empty to keep the default `*.cloudfront.net` certificate, on which
 CloudFront forces the `TLSv1` security policy. See [terraform/README.md](../terraform/README.md#grafana).
 
-### ECR mirror repository
-
-The `<project_name>/sglang-runtime` repository, the target of the optional copy of the runtime image
-([DEPLOY.md](DEPLOY.md#mirror-the-image-to-your-ecr-optional)), exists only with `create_runtime_mirror_repository = true`
-(default `false`: the workers pull the public NGC image).
-
-- `terraform -chdir=terraform/cluster output -raw sglang_runtime_ecr_repository_url` fails with
-  `Error: Output "sglang_runtime_ecr_repository_url" not found`: the variable is `false`, so the output is null and
-  `SGLANG_RUNTIME_REPO` of `platform.env` is empty. Set it to `true` in `terraform/cluster/terraform.tfvars`, run
-  `terraform apply`, then read the output again.
-- On a stack applied before the variable existed, or after you set it back to `false`, `terraform plan` wants to
-  destroy `aws_ecr_repository.sglang_runtime[0]` and its lifecycle policy. If you mirror the image, set the variable to
-  `true` and the plan keeps the repository. If you do not, let it go: the delete fails with
-  `RepositoryNotEmptyException` while the repository holds images (`force_delete = false`), so delete them first
-  (`aws ecr batch-delete-image`, see [DEPLOY.md](DEPLOY.md#teardown)), then apply again. The failed apply has already
-  destroyed `aws_ecr_lifecycle_policy.sglang_runtime[0]`: the repository has no lifecycle policy until the next apply
-  succeeds. That apply deletes the repository or, if you set the variable back to `true`, creates the policy again.
-
-### `terraform destroy` of the cluster fails: `RepositoryNotEmptyException`
-
-The ECR repositories `<project_name>/bench` and, with `create_runtime_mirror_repository = true`,
-`<project_name>/sglang-runtime` have `force_delete = false`, so `terraform destroy` of `terraform/cluster` stops on the
-first one that holds an image: the bench image of section 7 of DEPLOY.md, or your copy of the runtime image. The KMS
-key of the repositories stays too until a destroy succeeds. Delete the images, then run `terraform destroy` again:
-`scripts/90-teardown.sh --yes` does it in its step 3, and [DEPLOY.md](DEPLOY.md#teardown) gives the `aws ecr`
-commands. Keep `force_delete = false`: it is what stops Terraform from deleting an image on its own, for example when a
-change replaces a repository.
-
 ### `terraform destroy` of the buckets fails: `BucketNotEmpty`
 
 The buckets have `force_destroy = false`. Empty both first, including every object version and delete marker of the
@@ -118,20 +88,21 @@ before the destroy. If your account runs Amazon GuardDuty runtime monitoring, it
 
 ### `manifests/config/platform.env` is missing
 
-`kubectl kustomize`, the scripts and the driver read the generated file `manifests/config/platform.env`. A fresh clone
-has only `platform.env.example`. Run `python3 scripts/gen_env.py` after `terraform apply` in `terraform/cluster` (step 3
-of [DEPLOY.md](DEPLOY.md)), and again after every later apply.
+The scripts read the generated file `manifests/config/platform.env`. A fresh clone has only `platform.env.example`. Run
+`python3 scripts/gen_env.py` after `terraform apply` in `terraform/cluster` (step 3 of [DEPLOY.md](DEPLOY.md)), and
+again after every later apply.
 
 If `gen_env.py` refuses with `terraform output platform_env ... missing` (the message lists every missing output), the
 last terraform apply of `terraform/cluster` failed or stopped before it created those outputs: the cluster can be up, but
-no env file is written, so the scripts and section 7 of DEPLOY.md cannot run. Read the errors of that apply, fix them and
-re-run it. To tear the partial stack down instead, run `scripts/90-teardown.sh --from-terraform`: it reads the values
+no env file is written, so the scripts cannot run. Read the errors of that apply, fix them and
+re-run it. To tear the partial stack down instead, run `scripts/teardown.sh --from-terraform`: it reads the values
 from the terraform outputs ([DEPLOY.md](DEPLOY.md#teardown)).
 
 ### Pods stay Pending on another GPU shape
 
 The manifests select the pool `gpu-b200-cb` and 8 GPUs per node. On any other shape `gen_env.py` refuses without
-`--allow-untested`, and the pods stay Pending until you adapt their node selectors and GPU counts.
+`--allow-untested`, and the pods stay Pending until you adapt their node selectors and GPU counts
+([DEPLOY.md](DEPLOY.md#prerequisites)).
 
 ### An extra `cpu-demo` node stays after the staging Job
 
@@ -144,23 +115,23 @@ NodeClaim: `kubectl get nodeclaims -l karpenter.sh/nodepool=cpu-demo`, then `kub
 Seen on the first pod of a new GPU node in Auto Mode. It is transient: the pod started 13 s later with no action.
 Investigate only if it repeats.
 
-### Image pull is slow: 14.8 GB through the NAT
+### Image pull is slow through the NAT
 
-The public runtime image is about 14.8 GB, and pulled from NGC every byte goes through the NAT gateway, which bills per
-GB. In the tests a pull of an image of that size from a public registry took from 1 min 35 s to about 7 min, so the
-workers and the Frontend wait that long on a new node. Mirror the image to the optional ECR repository of this stack
-(`create_runtime_mirror_repository = true`, [DEPLOY.md](DEPLOY.md#mirror-the-image-to-your-ecr-optional)): the layers
-then come through the S3 gateway endpoint.
-Run `scripts/13-prepull.sh` to keep the image cached on the `cpu-demo` nodes, where the Frontend runs.
+On a new node, the workers and the Frontend wait until the node has pulled the public runtime image from NGC through
+the NAT gateway, which bills per GB. The size of the image, and the command that reads it, are in
+[DEPLOY.md](DEPLOY.md#prerequisites). The `Pulled` event of the pod (`kubectl -n <namespace> get events`) says how long
+the pull took.
 
 ## Serving
 
 ### Router does not see the L3 tier
 
 After a cache flush (`flush_cache`), the KV router of the Frontend predicts a hit of 0 for a prefix that the worker
-still serves from the HiCache storage tier (L3): the router sees only the KV events of the GPU cache, not L3. In the
-tests an 8K prompt then got 7,936 cached tokens from L3 while the router predicted 0. Nothing is broken; to see the reuse
-from L3, read the engine metric `sglang:cached_tokens_total` with the label `storage`, not the router hit rate.
+still serves from the HiCache storage tier (L3): the flush empties the GPU and host tiers but not L3, and the router
+does not see L3 ([HiCache guide](optimizations/hicache/README.md#how-it-works)). Observed by us once on a single
+worker (not published): the router predicted 0 while the engine served the prefix from L3. Nothing is broken; to see
+the reuse from L3, read the engine metric `sglang:cached_tokens_total{cache_source="storage"}` (SGLang 0.5.21), not
+the router hit rate. To empty L3 too, see [Reset between runs](optimizations/hicache/README.md#reset-between-runs).
 
 ### First request after boot is slow
 
@@ -169,44 +140,31 @@ had a TTFT of 1.88 s on the first request and 0.85 s once the worker was warm. S
 
 ### KV transfer silently on TCP: how to detect and what changes it
 
-Symptom: a prefill/decode (PD) cell answers correctly and logs no error, but the TTFT grows with the prompt length and
-the bytes on eth0 of the prefill node are about the KV bytes. Nothing fails, because TCP is a valid transport.
+Symptom: a prefill/decode (PD) cell answers correctly and logs no error, but the TTFT is high (Dynamo's EFA guide says
+about 100 s) and, by our reading of the mechanism (not tested), the bytes on eth0 of the prefill pod grow by about the
+KV bytes. Nothing fails, because TCP is a valid transport.
 
 Cause: the NIXL backend the pods run is not one they can use at speed. On EFA, UCX or an unset
-`SGLANG_DISAGGREGATION_NIXL_BACKEND` falls back to TCP; the EFA cells of this repository set `LIBFABRIC`. On one NVLink
-node (seen on an H200 node, not on p6-b200), UCX with a default pod spec does not pick `cuda_ipc` between the two pods and falls back to TCP too.
+`SGLANG_DISAGGREGATION_NIXL_BACKEND` falls back to TCP; the EFA cells of this repository set `LIBFABRIC`.
 
-Detect it:
+Detect it: each engine's boot log must show `Backend LIBFABRIC was instantiated`; the eth0 bytes of the prefill pod in
+`/proc/net/dev` should not grow by about the KV bytes (not tested; see
+[Check that it works in the PD guide](optimizations/pd-disaggregation/README.md#check-that-it-works)).
 
-- On EFA: each engine's boot log must show `Backend LIBFABRIC was instantiated`, and the eth0 delta must be a tiny share
-  of the KV bytes (see [section 8 of the PD guide](optimizations/pd-disaggregation/README.md#8-how-to-measure-and-pitfalls)).
-- With UCX (the NVLink variants): the pods set `UCX_PROTO_INFO=y` and `UCX_LOG_LEVEL=info`. The protocol table in the
-  log of the NIXL initiator, the prefill pod for SGLang, must list `cuda_ipc` for the prefill-to-decode endpoint:
-  `kubectl --context "$KUBE_CONTEXT" -n s-dis logs -l nvidia.com/dynamo-component-type=prefill -c main --tail=-1 | grep cuda_ipc`
-  (adapt the namespace and the labels to your deployment). `tcp/eth0` rows appear in a working setup too: look for the
-  presence of `cuda_ipc`, not the absence of `tcp`.
-- On NVLink: the NVLink data counters of the two GPUs should grow by about the KV bytes moved; flat at zero means TCP.
-  The panel "NVLink throughput (DCGM)" of `dashboards/demo/matrix.json` shows them if your nodes export the DCGM PROF fields.
-
-What changes it: on EFA, `manifests/track-q-qwen38/components/pd-efa` (LIBFABRIC, the EFA environment, one EFA interface
-per pod). On one node with NVLink, `manifests/track-q-qwen38/components/pd-nvlink` (the UCX recipe), which is a design
-reference: it needs `privileged: true` and `hostPID: true`, was not run on p6-b200, and works on one node only; across
-nodes EFA is still the path. Apply the NVLink variant of a cell from `manifests/track-q-qwen38/rendered-nvlink/` or
-the `nvlink/` sub-folder of a PD example (`examples/<folder>/nvlink`, for example `examples/03-pd-disaggregation/nvlink`),
-and the EFA one from `manifests/track-q-qwen38/rendered/` or the folder itself (`examples/03-pd-disaggregation`). When to
-use EFA and when to use NVLink, and the limits: [the PD guide](optimizations/pd-disaggregation/README.md#311-nvlink-on-one-node-design-reference-not-run-on-p6-b200)
-and [Choosing the PD transport](../README.md#choosing-the-pd-transport).
+What changes it: the prefill and decode workers of the PD examples set LIBFABRIC, the EFA environment and one EFA
+interface per pod. Apply a PD example from `examples/<folder>/manifest.yaml` (for example
+`examples/03-pd-disaggregation/manifest.yaml`).
 
 ## Model staging exit codes
 
-When the Job fails, `scripts/10-stage-model.sh` stops and prints the `kubectl logs` command of the Job. The log line says
+When the Job fails, `scripts/stage-model.sh` stops and prints the `kubectl logs` command of the Job. The log line says
 what happened, and the exit code of the Job's container (`EXIT_*` in `tools/stage_model/stage_model.py`) is shown as
 `Exit Code` by `kubectl -n node-ops describe pods -l job-name=model-stage`. The Job does not retry codes 2 to 5.
 
 | Exit | Meaning | Fix |
 |---|---|---|
 | `2` | Configuration error: a malformed `MODEL_ID`, `MODEL_REVISION`, `MODEL_S3_URI` or `HF_TOKEN` | Fix the value in the tfvars, apply, run `gen_env.py` again; for the token, export a valid one. |
-| `3` | Gated model and no token: `HF_TOKEN` is not set | Accept the license on the model page, then `export HF_TOKEN=<read token>` in the shell that runs `scripts/10-stage-model.sh` (not in `config/sample.env`: `gen_env.py` overwrites it). |
+| `3` | Gated model and no token: `HF_TOKEN` is not set | Accept the license on the model page, then `export HF_TOKEN=<read token>` in the shell that runs `scripts/stage-model.sh` (not in `platform.env`: `gen_env.py` overwrites it). |
 | `4` | Access denied: Hugging Face refused the token (HTTP 401 or 403) | Accept the license with the account that owns the token (some models wait for the author's approval); use a valid read token. |
 | `5` | Not found: wrong model or revision (HTTP 404), or no weights in the repository | Check `model_id` and `model_revision` (a commit SHA) on the model page. |
 | `6` | Verify failed: a file size or sha256 differs from what the Hub lists | Run the script again; the files already in S3 are kept. |

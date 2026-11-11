@@ -1,5 +1,5 @@
 # Vendored unmodified from NVIDIA Dynamo (https://github.com/ai-dynamo/dynamo),
-# tag v1.5.1 (commit 2093662a4d4e5fd318732935213dde08dc7be818), path deploy/observability/dcgm-metrics-with-nvlink.csv.
+# tag v1.6.1 (commit 0d9c24a8bf6db13c1a1223cf15fcbee9140d1ac3), path deploy/observability/dcgm-metrics-with-nvlink.csv.
 # Licensed under the Apache License, Version 2.0 (Apache-2.0),
 # http://www.apache.org/licenses/LICENSE-2.0 ; provenance in NOTICE and THIRD-PARTY-LICENSES.md.
 # The Dynamo file is etc/dcp-metrics-included.csv of NVIDIA DCGM Exporter (https://github.com/NVIDIA/dcgm-exporter,

@@ -6,7 +6,7 @@
 # ----------------------------------------------------------------------------- stack (REQUIRED: region)
 aws_region = "us-east-2"
 
-# project_name = "dynamo-sample"      # ECR repo prefix and Project tag
+# project_name = "dynamo-sample"      # Project tag and default name prefix
 # cluster_name = "dynamo-sample-use2" # null = <project_name>-<region code of the AZ IDs>; keep it identical
 #                                     # in ../bootstrap (bucket names derive from it)
 
@@ -24,7 +24,7 @@ allow_open_eks_api      = false
 # P or G instance types. Types with the same GPU, GPU memory, GPU count, network cards and EFA
 # interfaces share one NodeClass/NodePool (pool gpu-<gpu>-<cb|odcr|od|spot>; output gpu_pools).
 # Validated end to end: p6-b200.48xlarge (8 EFA, Capacity Block) = pool gpu-b200-cb, the only shape
-# the Track Q manifests select. Others are supported by Terraform, manifests untested.
+# the manifests select. Others are supported by Terraform, manifests untested.
 # Pool names can change: when a second group with the same GPU joins (e.g. adding a g6e size with
 # another GPU count), every group of that GPU gets a <gpus>x<GiB>g[-efa<n>][-nc<n>] suffix, so the
 # existing NodeClass/NodePool is replaced (its nodes drain). Check `terraform plan` before applying.
@@ -55,14 +55,13 @@ gpu_az_ids = []
 # gpu_product_overrides      = { H100 = "NVIDIA-H100-80GB-HBM3" }
 # primary_az_id              = "use2-az1" # cpu-demo AZ; null = the first GPU AZ
 
-# ----------------------------------------------------------------------------- model and workload (REQUIRED: model)
-# Written to the generated env by scripts/gen_env.py (MODEL_ID, MODEL_REVISION and RUNTIME_IMAGE, in both
-# platform.env and sample.env).
+# ----------------------------------------------------------------------------- model and runtime image (REQUIRED: model)
+# Written to manifests/config/platform.env by scripts/gen_env.py (MODEL_ID, MODEL_REVISION, RUNTIME_IMAGE).
 model_id       = "Qwen/Qwen3.8-27B-FP8"
 model_revision = "017b9c7af6b5689d5dd426a76e0bc077eb5ca20a"
 
 # Object prefix of the model in the model bucket (MODEL_S3_PREFIX / MODEL_S3_URI of the generated env):
-# scripts/10-stage-model.sh stages the model there, 11-prefetch.sh reads it, and the model-stager role
+# scripts/stage-model.sh stages the model there, prefetch.sh reads it, and the model-stager role
 # may write only there. null = <model_id>/<model_revision>; set it to keep an existing bucket layout.
 # model_s3_prefix = "Qwen3.8-27B-FP8"
 
@@ -71,16 +70,7 @@ model_revision = "017b9c7af6b5689d5dd426a76e0bc077eb5ca20a"
 # hf_token_secret_arn = "arn:aws:secretsmanager:<region>:<account>:secret:<name>"
 
 # The runtime image of the Frontend and the workers, pinned by digest: the public NGC image of versions.env.
-# To keep the pull off the NAT gateway, create the optional sglang-runtime repository of this stack (off by
-# default), mirror the image into it (docs/DEPLOY.md, "Mirror the image to your ECR") and set the mirror
-# here, same digest:
-# create_runtime_mirror_repository = true
-# runtime_image = "<account>.dkr.ecr.<region>.amazonaws.com/<project_name>/sglang-runtime@sha256:<digest>"
-runtime_image = "nvcr.io/nvidia/ai-dynamo/sglang-runtime:1.6.0-efa@sha256:d574951b0dbd037bdcaabe121431a83cd047a5c106cb243fe6f2f97f2e456cd2"
-
-workload_rate              = 10    # RATE (req/s)
-workload_context_tokens    = 16384 # MAX_ISL of the trace
-workload_sessions_per_rate = 75    # SESSIONS_PER_RATE (sessions = rate x 75)
+runtime_image = "nvcr.io/nvidia/ai-dynamo/sglang-runtime:1.6.1-efa@sha256:bc30725d441e32406f2ee237bb3f0b720b105ca3b7f0c43b3d68918a23a5a954"
 
 # ----------------------------------------------------------------------------- observability
 # false = reach Grafana with kubectl port-forward; true = CloudFront + WAF edge (one apply, about 12 min

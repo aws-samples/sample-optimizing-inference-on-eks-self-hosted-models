@@ -1,6 +1,6 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
-"""RED tests: the Grafana edge applies in one ``terraform apply`` on a new stack.
+"""Tests: the Grafana edge applies in one ``terraform apply`` on a new stack.
 
 A real first apply failed with ``namespaces "monitoring" not found``: ``kubernetes_service_v1.grafana_edge`` had no
 dependency on the namespace and was created before it (the mock providers of ``terraform test`` cannot see that
@@ -22,9 +22,6 @@ REPO = Path(__file__).resolve().parents[2]
 CLUSTER = REPO / "terraform" / "cluster"
 EDGE = "grafana-edge.tf"
 NAMESPACE_RESOURCE = "kubectl_manifest.namespace"
-TWO_PHASE = re.compile(r"two[- ]phases?|-target\s*=", re.IGNORECASE)
-
-
 def depends_on(body: str) -> list[str]:
     """Return the addresses listed in the ``depends_on`` of a resource body (instance keys stripped)."""
     m = re.search(r"\bdepends_on\s*=\s*\[(.*?)\]", body, re.DOTALL)
@@ -61,14 +58,3 @@ def test_the_namespace_resource_creates_monitoring_after_the_cluster() -> None:
     assert "module.eks" in depends_on(body), "the namespaces wait for the cluster and its creator access entry"
 
 
-def test_docs_describe_a_single_apply_for_the_edge() -> None:
-    header = (CLUSTER / EDGE).read_text().split("# Providers")[0]
-    readme = (REPO / "terraform" / "README.md").read_text()
-    grafana = readme.split("## Grafana", 1)[1].split("\n## ", 1)[0]
-    example = (CLUSTER / "terraform.tfvars.example").read_text()
-    docs = {"grafana-edge.tf header": header, "terraform/README.md": readme, "tfvars.example": example}
-    for name, text in docs.items():
-        assert not TWO_PHASE.search(text), f"{name} still prescribes a two-phase apply with -target"
-    assert "Single apply" in header and "12 minutes" in header, "the header states one apply and its ~12 min wait"
-    assert "One `terraform apply`" in grafana and "12 minutes" in grafana, "README Grafana: one apply, ~12 minutes"
-    assert "edge (one apply, about 12 min" in example, "tfvars.example: the edge takes one apply, about 12 min"

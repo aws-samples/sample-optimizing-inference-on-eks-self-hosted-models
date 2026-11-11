@@ -1,12 +1,12 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
-"""RED tests: static contract of ``terraform/cluster`` and ``terraform/bootstrap`` (no Terraform binary needed).
+"""Tests: static contract of ``terraform/cluster`` and ``terraform/bootstrap`` (no Terraform binary needed).
 
 Covers: variables (descriptions, validations, required vs defaulted), the single tfvars.example, backend.tf.example,
 required_version, pinned vpc-cni add-on, repo-root sample dir + relocated DCGM dashboard, Grafana edge off by
 default (its plain-HTTP origin hop an explicit opt-in, listener and VPC origin aligned, viewer TLSv1.2_2021 with a
 custom domain and the default-certificate suppressions scoped and explained, `dashboards` as default root object),
-`moved` blocks and address preservation for adopting the live state of the original deployment, Hugging Face secret handling
+`moved` blocks and address preservation for a state of the earlier layout, Hugging Face secret handling
 (Secrets Manager ARN only, never read by Terraform), outputs, and the golden fixture exclusion list.
 """
 
@@ -15,7 +15,6 @@ from __future__ import annotations
 import importlib.util
 import json
 import re
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -24,8 +23,6 @@ from hcl import block_body, blocks, read_tf
 REPO = Path(__file__).resolve().parents[2]
 CLUSTER = REPO / "terraform" / "cluster"
 BOOTSTRAP = REPO / "terraform" / "bootstrap"
-SNAPSHOT = "240b23a"
-SNAPSHOT_STACK = "terraform/terraform-" + "ap-" + "south-1"  # the original stack at SNAPSHOT (git history only)
 
 REQUIRED_NO_DEFAULT = ["aws_region", "eks_public_access_cidrs", "gpu_instance_types", "model_id", "model_revision"]
 USER_FACING = [
@@ -38,9 +35,6 @@ USER_FACING = [
     "model_id",
     "model_revision",
     "hf_token_secret_arn",
-    "workload_rate",
-    "workload_context_tokens",
-    "workload_sessions_per_rate",
     "runtime_image",
     "enable_grafana_edge",
     "grafana_edge_allow_plain_http_origin",
@@ -63,9 +57,6 @@ VALIDATED = [
     "model_id",
     "model_revision",
     "hf_token_secret_arn",
-    "workload_rate",
-    "workload_context_tokens",
-    "workload_sessions_per_rate",
     "runtime_image",
     "vpc_cni_addon_version",
     "enable_grafana_edge",
@@ -214,18 +205,6 @@ def test_grafana_nlb_listener_and_vpc_origin_agree(tf: dict[str, str]) -> None:
         assert re.search(rf"(?m)^\s*{side}\s*=\s*var\.grafana_edge_listener_port", ingress), f"grafana_nlb_from_cloudfront.{side}"
 
 
-def test_https_settings_of_the_http_only_origin_are_marked_unused() -> None:
-    """https_port and origin_ssl_protocols are required by the API/provider but unused with http-only: the code says so."""
-    raw = (CLUSTER / "grafana-edge.tf").read_text()
-    origin = blocks(raw, "resource", 2)["aws_cloudfront_vpc_origin.grafana"]
-    for setting in ("https_port", "origin_ssl_protocols"):
-        line = next((ln for ln in origin.splitlines() if re.match(rf"\s*{setting}\b", ln)), "")
-        assert line, f"{setting} is required by the provider, keep it"
-        before = origin[: origin.index(line)].splitlines()[-3:]
-        assert any(re.search(r"(?i)\bnot used\b|\bunused\b", ln) for ln in [*before, line]), (
-            f"{setting}: say next to it that it is required but not used with http-only (config and behaviour must agree)")
-
-
 SEMGREP_CF_TLS = "terraform.aws.security.aws-insecure-cloudfront-distribution-tls-version"
 # The same rule as named by the registry ruleset p/terraform (the rule file name is part of the id there).
 SEMGREP_CF_TLS_REGISTRY = "terraform.aws.security.aws-cloudfront-insecure-tls.aws-insecure-cloudfront-distribution-tls-version"
@@ -286,20 +265,53 @@ def moved_pairs(tf: dict[str, str]) -> dict[str, str]:
     return pairs
 
 
-def snapshot_resources(file: str) -> list[str]:
-    out = subprocess.run(
-        ["git", "-C", str(REPO), "show", f"{SNAPSHOT}:{SNAPSHOT_STACK}/{file}"],
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout
-    return [f"{t}.{n}" for t, n in re.findall(r'(?m)^resource\s+"([^"]+)"\s+"([^"]+)"', out)]
+# The earlier layout that moved.tf refers to, frozen: its Grafana edge resources (no count yet) and every address of
+# it that this layout still declares (the GPU NodeClass/NodePool and the resources removed since are left out).
+EARLIER_GRAFANA_EDGE = [
+    "aws_security_group.grafana_nlb",
+    "aws_vpc_security_group_egress_rule.grafana_nlb_to_pods",
+    "aws_vpc_security_group_ingress_rule.pods_from_grafana_nlb",
+    "kubernetes_service_v1.grafana_edge",
+    "aws_cloudfront_vpc_origin.grafana",
+    "aws_vpc_security_group_ingress_rule.grafana_nlb_from_cloudfront",
+    "aws_wafv2_web_acl.grafana",
+    "aws_cloudfront_distribution.grafana",
+]
+EARLIER_KEPT = {
+    "aws_cloudfront_distribution.grafana",
+    "aws_cloudfront_vpc_origin.grafana",
+    "aws_eks_pod_identity_association.model_prefetch",
+    "aws_iam_policy.model_reader",
+    "aws_iam_role.model_reader",
+    "aws_iam_role_policy_attachment.model_reader",
+    "aws_security_group.grafana_nlb",
+    "aws_vpc_endpoint.s3",
+    "aws_vpc_security_group_egress_rule.grafana_nlb_to_pods",
+    "aws_vpc_security_group_ingress_rule.grafana_nlb_from_cloudfront",
+    "aws_vpc_security_group_ingress_rule.pods_from_grafana_nlb",
+    "aws_wafv2_web_acl.grafana",
+    "helm_release.dcgm_exporter",
+    "helm_release.dynamo_platform",
+    "helm_release.kube_prometheus_stack",
+    "kubectl_manifest.auto_storage_class_default",
+    "kubectl_manifest.grafana_dashboard",
+    "kubectl_manifest.grafana_dcgm_dashboard",
+    "kubectl_manifest.grafana_sglang_dashboard",
+    "kubectl_manifest.namespace",
+    "kubectl_manifest.node_class_cpu_demo",
+    "kubectl_manifest.node_pool_cpu_demo",
+    "kubectl_manifest.remove_legacy_gp2_default_annotation",
+    "kubernetes_service_account_v1.model_prefetch",
+    "kubernetes_service_v1.grafana_edge",
+    "module.eks",
+    "module.vpc",
+}
 
 
 def test_moved_blocks_cover_grafana_edge_and_gpu_pool(tf: dict[str, str]) -> None:
     pairs = moved_pairs(tf)
-    for addr in snapshot_resources("grafana-edge.tf"):
-        assert pairs.get(addr) == f"{addr}[0]", f"missing moved {addr} -> {addr}[0] (adopting the live state with count)"
+    for addr in EARLIER_GRAFANA_EDGE:
+        assert pairs.get(addr) == f"{addr}[0]", f"missing moved {addr} -> {addr}[0] (the Grafana edge gained a count)"
     assert pairs.get("kubectl_manifest.node_class_gpu_b200_cb[0]") == 'kubectl_manifest.gpu_node_class["gpu-b200-cb"]'
     assert pairs.get("kubectl_manifest.node_pool_gpu_b200_cb[0]") == 'kubectl_manifest.gpu_node_pool["gpu-b200-cb"]'
 
@@ -317,30 +329,12 @@ def test_every_moved_target_exists_in_the_config(tf: dict[str, str]) -> None:
 
 
 def test_other_resource_addresses_are_preserved_for_state_adoption(tf: dict[str, str]) -> None:
-    """Every snapshot resource not moved/removed keeps its address (plan on a copy of live state: 0 destroy)."""
-    out = subprocess.run(
-        ["git", "-C", str(REPO), "ls-tree", "--name-only", SNAPSHOT, f"{SNAPSHOT_STACK}/"],
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.split()
-    old: set[str] = set()
-    for path in out:
-        if not path.endswith(".tf"):
-            continue
-        old |= set(snapshot_resources(path.rsplit("/", 1)[1]))
-    old |= {f"module.{m}" for m in ("eks", "vpc")}
-    gone = {
-        "kubectl_manifest.node_class_gpu_b200_cb",  # moved to the for_each pool
-        "kubectl_manifest.node_pool_gpu_b200_cb",
-        "kubectl_manifest.node_class_gpu_g7e_odcr",  # ODCR test pool of the original stack, never in the live state
-        "kubectl_manifest.node_pool_gpu_g7e_odcr",
-    }
+    """Every address of the earlier layout that was not moved or removed is still declared (0 destroy on its state)."""
     new: set[str] = set()
     for text in tf.values():
         new |= {f"{t}.{n}" for t, n in re.findall(r'(?m)^resource\s+"([^"]+)"\s+"([^"]+)"', text)}
         new |= {f"module.{n}" for n in re.findall(r'(?m)^module\s+"([^"]+)"', text)}
-    assert sorted((old - gone) - new) == [], "resource addresses changed without a moved block"
+    assert sorted(EARLIER_KEPT - new) == [], "resource addresses changed without a moved block"
 
 
 def test_outputs_expose_the_env_contract(tf: dict[str, str]) -> None:

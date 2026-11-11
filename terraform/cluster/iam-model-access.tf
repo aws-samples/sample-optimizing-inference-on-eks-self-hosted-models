@@ -14,7 +14,7 @@
 # customer managed KMS key also needs kms:Decrypt on that key (not granted here).
 #
 # model-stager is assumed by node-ops/model-stager (Hugging Face -> S3 staging
-# Job, scripts/10-stage-model.sh): write access under local.model_s3_prefix of
+# Job, scripts/stage-model.sh): write access under local.model_s3_prefix of
 # the model bucket only (no delete, no other prefix, no Secrets Manager; its
 # token travels in an ephemeral Kubernetes Secret).
 ################################################################################

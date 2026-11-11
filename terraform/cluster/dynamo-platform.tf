@@ -5,7 +5,7 @@
 # NVIDIA Dynamo Platform (operator only, var.dynamo_version)
 #
 # Chart: NGC dynamo-platform-<version>.tgz. Value paths cross-checked against
-# ai-dynamo/dynamo v1.5.1 deploy/helm/charts/platform/values.yaml and
+# ai-dynamo/dynamo v1.6.1 deploy/helm/charts/platform/values.yaml and
 # components/operator/values.yaml:
 #   - etcd/NATS not installed (not needed since 1.4.0; discovery = kubernetes).
 #   - grove, kai-scheduler and snapshot neither installed nor enabled.

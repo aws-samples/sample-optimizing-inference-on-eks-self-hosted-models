@@ -1,7 +1,0 @@
-# examples/06-kv-router-pd/nvlink = Option B of this folder: Track Q cell S5 with the same-node KV path over NVLink (NIXL UCX cuda_ipc).
-# DESIGN REFERENCE: not one of the recorded runs and not run on p6-b200; the folder itself (EFA, NIXL LIBFABRIC) is the default.
-# Source: manifests/track-q-qwen38/variants-nvlink/S5 (render: rendered-nvlink/S5.yaml). Render with scripts/render-examples.sh.
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
-resources:
-  - ../../../manifests/track-q-qwen38/variants-nvlink/S5

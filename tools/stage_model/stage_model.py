@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: MIT-0
 """Stage the weights of a Hugging Face model into the models bucket (Job node-ops/model-stage).
 
-``scripts/10-stage-model.sh`` mounts this file and ``requirements.txt`` from the ConfigMap
-``model-stage-code`` and runs it with the environment below. Credentials come from the Pod Identity
+``scripts/stage-model.sh`` mounts this file and ``requirements-cluster.txt`` (as ``requirements.txt``) from
+the ConfigMap ``model-stage-code`` and runs it with the environment below. Credentials come from the Pod Identity
 role ``model-stager`` (write access under the model prefix only).
 
 Environment:
@@ -341,7 +341,7 @@ def gated_no_token(cfg: Config, gated: object) -> StageError:
         f"{cfg.model_id} is a gated model (gated={gated}) and HF_TOKEN is not set: accept the "
         f"licence on {cfg.page} with your Hugging Face account, create a read token at "
         f"{TOKENS_PAGE}, `export HF_TOKEN=<read token>` in the shell that runs "
-        "scripts/10-stage-model.sh, and re-run it",
+        "scripts/stage-model.sh, and re-run it",
     )
 
 

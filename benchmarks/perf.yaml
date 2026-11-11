@@ -1,0 +1,137 @@
+# AIPerf trace-replay benchmark, one point of the benchmark trace (one request rate), against one cell of this sample.
+# The layout follows NVIDIA's recipes/qwen3.8-flash-next/perf/perf.yaml (Dynamo v1.6.1): one Job, one value of the
+# load knob per run. Here the knob is RATE (req/s); NVIDIA's is CONCURRENCY.
+#
+# Apply it in the namespace of the cell that is Ready (s-agg, s-agg-hic, s-dis or s-dis-hic):
+#   kubectl -n s-agg apply -f perf.yaml
+# Set CELL, RESULTS_BUCKET and AWS_REGION in env first: the Job fails before it installs anything while one of them is
+# empty or still a <placeholder>. To run another rate, delete the Job and edit RATE. Reset the caches between rates:
+# docs/BENCHMARKING.md.
+#
+# The trace has its own cache-filling phase at the start, so there is no separate warmup run.
+# Results: /results/rate-<RATE> in the pod, uploaded with boto3 to
+# s3://<RESULTS_BUCKET>/perf/<CELL>/rate-<RATE>/<UTC start of the run>/ as the ServiceAccount perf below (Pod Identity
+# role of terraform/cluster/iam-perf-results.tf). If the upload fails, the pod stays up HOLD_SECONDS so you can copy
+# them, then the Job fails:
+#   kubectl -n s-agg cp perf-<suffix>:/results ./results
+# What of the upload ran and what did not: docs/BENCHMARKING.md#not-tested.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: perf
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: perf
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 3600
+  completions: 1
+  parallelism: 1
+  template:
+    metadata:
+      labels:
+        app: perf
+    spec:
+      serviceAccountName: perf
+      containers:
+        - name: perf
+          image: python:3.12-slim
+          imagePullPolicy: IfNotPresent
+          workingDir: /workspace
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -euo pipefail
+              for v in CELL RESULTS_BUCKET AWS_REGION; do
+                case "${!v:-}" in ""|*"<"*) echo "Set ${v} in the env of perf.yaml (now '${!v:-}')." >&2; exit 1 ;; esac
+              done
+              apt-get update && apt-get install -y curl jq && apt-get clean
+              pip install "aiperf==0.13.0" "boto3==1.43.125"
+              TRACE_GZ="trace-r${RATE}.jsonl.gz"
+              echo "Waiting for model '${TARGET_MODEL}' at ${ENDPOINT}/v1/models ..."
+              until curl -sf "http://${ENDPOINT}/v1/models" | jq -e --arg m "${TARGET_MODEL}" '.data[]? | select(.id == $m)' >/dev/null; do
+                sleep 5
+              done
+              curl -sfL "${TRACE_BASE_URL}/${TRACE_GZ}" -o "${TRACE_GZ}"
+              curl -sfL "${TRACE_BASE_URL}/SHA256SUMS" -o SHA256SUMS
+              grep " ${TRACE_GZ}\$" SHA256SUMS | sha256sum -c -
+              gunzip -f "${TRACE_GZ}"
+              TRACE_FILE="trace-r${RATE}.jsonl"
+              echo "Trace ${TRACE_FILE}: $(wc -l < "${TRACE_FILE}") requests"
+              OUT="/results/rate-${RATE}"
+              mkdir -p "${OUT}"
+              STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+              aiperf profile \
+                -m "${TARGET_MODEL}" \
+                --url "http://${ENDPOINT}" \
+                --tokenizer "${TARGET_MODEL}" \
+                --tokenizer-revision "${MODEL_REVISION}" \
+                --endpoint-type chat \
+                --streaming \
+                --input-file "${TRACE_FILE}" \
+                --custom-dataset-type mooncake_trace \
+                --fixed-schedule \
+                --fixed-schedule-auto-offset \
+                --use-server-token-count \
+                --extra-inputs ignore_eos:true \
+                --goodput "${GOODPUT}" \
+                --request-timeout-seconds 120 \
+                --random-seed 43 \
+                --ui-type none \
+                --artifact-dir "${OUT}"
+              echo "Rate ${RATE} done; artifacts in ${OUT}"
+              PREFIX="perf/${CELL}/rate-${RATE}/${STAMP}"
+              # botocore reads AWS_DEFAULT_REGION, not AWS_REGION, so the region is passed explicitly.
+              if python3 - "${OUT}" "${RESULTS_BUCKET}" "${PREFIX}" "${AWS_REGION}" <<'PY'
+              import pathlib
+              import sys
+              import boto3
+              out = pathlib.Path(sys.argv[1])
+              bucket, prefix, region = sys.argv[2:]
+              s3 = boto3.client("s3", region_name=region)
+              files = sorted(p for p in out.rglob("*") if p.is_file())
+              for path in files:
+                  s3.upload_file(str(path), bucket, f"{prefix}/{path.relative_to(out).as_posix()}")
+              print(f"Uploaded {len(files)} files to s3://{bucket}/{prefix}/")
+              PY
+              then
+                exit 0
+              fi
+              echo "Upload failed: the pod stays up ${HOLD_SECONDS}s for kubectl cp, then the Job fails."
+              sleep "${HOLD_SECONDS}"
+              exit 1
+          env:
+            # --- Edit these to pick the point ---
+            - name: RATE
+              value: "10" # req/s offered; one of 5 10 15 20 25 30 35 40
+            - name: CELL
+              value: "<cell>" # S0 to S7 (examples/README.md), part of the S3 prefix of the results
+            - name: ENDPOINT
+              value: q38-frontend:8000 # Service of the cell, in this namespace
+            - name: TARGET_MODEL
+              value: Qwen/Qwen3.8-27B-FP8
+            - name: MODEL_REVISION
+              value: 017b9c7af6b5689d5dd426a76e0bc077eb5ca20a # same revision as model_revision in terraform.tfvars.example and the manifests
+            # --- The same for every point ---
+            - name: RESULTS_BUCKET
+              value: "<results bucket>" # RESULTS_BUCKET of manifests/config/platform.env
+            - name: AWS_REGION
+              value: "<region>" # AWS_REGION of manifests/config/platform.env; Pod Identity sets no region
+            - name: TRACE_BASE_URL
+              value: https://raw.githubusercontent.com/aws-samples/sample-optimizing-inference-on-eks-self-hosted-models/main/benchmarks/traces
+            - name: GOODPUT
+              value: "time_to_first_token:1000 inter_token_latency:25" # ms
+            - name: HOLD_SECONDS
+              value: "1800"
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          volumeMounts:
+            - name: results
+              mountPath: /results
+      restartPolicy: Never
+      volumes:
+        - name: results
+          emptyDir: {}

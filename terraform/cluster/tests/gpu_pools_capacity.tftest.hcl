@@ -1,7 +1,7 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
 #
-# RED tests for the gpu-pools module: capacity types, limits and AZ choice.
+# Tests for the gpu-pools module: capacity types, limits and AZ choice.
 # Contract and inputs: see the header of gpu_pools_grouping.tftest.hcl.
 #
 # capacity-block / odcr : requirement karpenter.sh/capacity-type In [reserved], NodeClass

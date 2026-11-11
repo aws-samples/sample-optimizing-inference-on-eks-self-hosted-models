@@ -3,7 +3,7 @@
 """Materialize the gitignored ``manifests/config*/platform.env`` from its tracked ``platform.env.example``.
 
 ``platform.env`` is generated from the Terraform outputs and holds account values, so a fresh ``git clone`` has only
-the example.  Every render, golden and plan hash the suites pin is computed from the example's placeholder values
+the example.  Every render the suites pin is computed from the example's placeholder values
 (account 123456789012).  ``materialize()`` writes the file only when it is absent and ``cleanup()`` removes exactly
 those files again; an existing file (a real deployment's) is never modified or deleted.
 """

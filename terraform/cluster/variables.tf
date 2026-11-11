@@ -23,7 +23,7 @@ variable "aws_region" {
 }
 
 variable "project_name" {
-  description = "Project name: ECR repository prefix (<project_name>/sglang-runtime, <project_name>/bench), Project tag and default name prefix"
+  description = "Project name: Project tag and default name prefix"
   type        = string
   default     = "dynamo-sample"
 
@@ -93,7 +93,7 @@ variable "eks_control_plane_excluded_az_ids" {
 }
 
 variable "primary_az_id" {
-  description = "AZ ID of the cpu-demo pool (frontends, bench, monitoring); null = the first GPU AZ, so frontends and GPU workers share an AZ. Pin it to keep cpu-demo in place when the GPU AZ changes"
+  description = "AZ ID of the cpu-demo pool (monitoring, Dynamo operator, model staging Job); null = the first GPU AZ. Pin it to keep cpu-demo in place when the GPU AZ changes"
   type        = string
   default     = null
 
@@ -229,7 +229,7 @@ variable "gpu_pod_ipv4_prefix_count" {
 
   validation {
     # >= 3 prefixes = >= 48 pod IPs, the floor for the >= 40 pods sized for the
-    # GPU node (workers, DaemonSets, Jobs, debug/bench pods).
+    # GPU node (workers, DaemonSets, Jobs, debug pods).
     condition     = var.gpu_pod_ipv4_prefix_count >= 3 && var.gpu_pod_ipv4_prefix_count <= 16 && floor(var.gpu_pod_ipv4_prefix_count) == var.gpu_pod_ipv4_prefix_count
     error_message = "gpu_pod_ipv4_prefix_count must be an integer between 3 (48 pod IPs) and 16."
   }
@@ -274,7 +274,7 @@ variable "gpu_product_overrides" {
   default     = {}
 }
 
-# ----------------------------------------------------------------------------- model and workload (generated env)
+# ----------------------------------------------------------------------------- model and runtime image (generated env)
 
 variable "model_id" {
   description = "Hugging Face repository ID of the served model (MODEL_ID of the generated env)"
@@ -297,7 +297,7 @@ variable "model_revision" {
 }
 
 variable "model_s3_prefix" {
-  description = "Object prefix of the model in the model bucket (MODEL_S3_PREFIX / MODEL_S3_URI of the generated env): scripts/10-stage-model.sh stages the model there and 11-prefetch.sh reads it; the model-stager role may write only there. null = <model_id>/<model_revision>"
+  description = "Object prefix of the model in the model bucket (MODEL_S3_PREFIX / MODEL_S3_URI of the generated env): scripts/stage-model.sh stages the model there and prefetch.sh reads it; the model-stager role may write only there. null = <model_id>/<model_revision>"
   type        = string
   default     = null
 
@@ -319,46 +319,13 @@ variable "hf_token_secret_arn" {
 }
 
 variable "runtime_image" {
-  description = "Runtime image of the Frontend and the workers, <registry>/<repo>[:<tag>]@sha256:<digest> (RUNTIME_IMAGE of the generated env): the public NGC image of versions.env, or its mirror in the sglang-runtime repository this stack creates with create_runtime_mirror_repository = true; scripts/gen_env.py refuses an empty value"
+  description = "Runtime image of the Frontend and the workers, <registry>/<repo>[:<tag>]@sha256:<digest> (RUNTIME_IMAGE of the generated env): the public NGC image of versions.env; scripts/gen_env.py refuses an empty value"
   type        = string
   default     = ""
 
   validation {
     condition     = var.runtime_image == "" || can(regex("^[a-z0-9.-]+(:[0-9]+)?/[a-z0-9._/-]+(:[A-Za-z0-9._-]+)?@sha256:[0-9a-f]{64}$", var.runtime_image))
     error_message = "runtime_image must be pinned by digest: <registry>/<repo>@sha256:<64 hex>."
-  }
-}
-
-variable "workload_rate" {
-  description = "Request rate in req/s (RATE of the generated sample.env)"
-  type        = number
-  default     = 10
-
-  validation {
-    condition     = var.workload_rate > 0
-    error_message = "workload_rate must be > 0."
-  }
-}
-
-variable "workload_context_tokens" {
-  description = "Maximum input sequence length of the trace in tokens (MAX_ISL of the generated sample.env; the --max-isl of workloads/w3-16k)"
-  type        = number
-  default     = 16384
-
-  validation {
-    condition     = var.workload_context_tokens > 0 && floor(var.workload_context_tokens) == var.workload_context_tokens
-    error_message = "workload_context_tokens must be an integer > 0."
-  }
-}
-
-variable "workload_sessions_per_rate" {
-  description = "Sessions per unit of rate (SESSIONS_PER_RATE of the generated sample.env; sessions = rate x this, as in workloads/w3-16k)"
-  type        = number
-  default     = 75
-
-  validation {
-    condition     = var.workload_sessions_per_rate > 0 && floor(var.workload_sessions_per_rate) == var.workload_sessions_per_rate
-    error_message = "workload_sessions_per_rate must be an integer > 0."
   }
 }
 
@@ -371,7 +338,7 @@ variable "model_bucket_name" {
 }
 
 variable "results_bucket_name" {
-  description = "Benchmark results bucket created by ../bootstrap; null = <prefix>-results-<account>-<suffix> of cluster_name (the bootstrap default)"
+  description = "Results bucket created by ../bootstrap; null = <prefix>-results-<account>-<suffix> of cluster_name (the bootstrap default)"
   type        = string
   default     = null
 }
@@ -414,7 +381,7 @@ variable "node_monitoring_agent_addon_version" {
 variable "dynamo_version" {
   description = "NVIDIA Dynamo platform Helm chart version (NGC)"
   type        = string
-  default     = "1.5.1"
+  default     = "1.6.1"
 }
 
 variable "kube_prometheus_stack_version" {
@@ -451,35 +418,6 @@ variable "prometheus_storage_size" {
   description = "Prometheus PVC size (auto-ebs-sc gp3); do not shrink/resize an existing PVC from here"
   type        = string
   default     = "50Gi"
-}
-
-variable "ecr_untagged_expire_days" {
-  description = "Days after push when UNTAGGED images expire in the project ECR repositories (tagged images never expire)"
-  type        = number
-  default     = 14
-
-  validation {
-    condition     = var.ecr_untagged_expire_days >= 1 && floor(var.ecr_untagged_expire_days) == var.ecr_untagged_expire_days
-    error_message = "ecr_untagged_expire_days must be an integer >= 1."
-  }
-}
-
-variable "create_runtime_mirror_repository" {
-  description = "Create the <project_name>/sglang-runtime ECR repository for the optional digest-preserving copy of the runtime image (docs/DEPLOY.md, Mirror the image to your ECR). false = the workers pull the public NGC image of runtime_image, the output sglang_runtime_ecr_repository_url is null and SGLANG_RUNTIME_REPO of the generated env is empty"
-  type        = bool
-  default     = false
-  nullable    = false
-}
-
-variable "image_mirror_source_region" {
-  description = "Optional region of source <project_name>/bench and, with create_runtime_mirror_repository = true, <project_name>/sglang-runtime repositories (same account) the image mirror Job may read from; null = no cross-region read"
-  type        = string
-  default     = null
-
-  validation {
-    condition     = var.image_mirror_source_region == null ? true : can(regex("^[a-z]{2}(-[a-z]+)+-[0-9]+$", var.image_mirror_source_region))
-    error_message = "image_mirror_source_region must be a region code (or null)."
-  }
 }
 
 # ----------------------------------------------------------------------------- Grafana edge (optional)

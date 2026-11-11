@@ -2,39 +2,34 @@
 # SPDX-License-Identifier: MIT-0
 """Every Python package that a documented command adds at run time is pinned to an exact version.
 
-The suites, the tools' tests and ``scripts/preflight-flags.sh`` add their Python packages at run time with the uv
+The suites and the tools' tests add their Python packages at run time with the uv
 options ``--with`` (one requirement) and ``--with-requirements`` (a requirements file).  An unpinned requirement
 resolves to whatever release the index serves that day, so each one names an exact version, and the version of a
 package is defined once.
 
 What is checked
 ===============
-* ``tests/requirements-test.txt`` (``PIN_FILE``) carries the MIT-0 SPDX header and pins every package of the test
+* ``requirements-test.txt`` (``PIN_FILE``) carries the MIT-0 SPDX header and pins every package of the test
   environment with ``==`` (an environment marker may follow ``;``): pytest, PyYAML, jsonschema, defusedxml and every
   package they pull in, so that the same set is installed on every run.
-* defusedxml, the XML parser of ``tests/publish/lib_xml.py`` and ``tools/demo_bench/tests/lib_xml.py``, has one
-  version: the ``dev`` group of ``tools/demo_bench/pyproject.toml`` pins the version of ``PIN_FILE`` and
-  ``tools/demo_bench/uv.lock`` resolves it.
-* No tracked text file outside the tree scanner's excluded prefix (``sanitize_scan.ALLOWLIST_PREFIX``, history that
-  is not exported) passes a requirement to ``--with`` without ``==``.  Nothing is allowlisted.
+* No tracked text file the public tree ships (``sanitize_scan.public_files``) passes a requirement to ``--with``
+  without ``==``.  Nothing is allowlisted.
 * Every file passed to ``--with-requirements`` is tracked (read from the repository root, or from the directory of a
   ``cd <dir>`` earlier on the same line) and holds exact pins only.
 * A package pinned inline with ``--with`` that is also pinned in a pin file of the repository (``PIN_FILES``) carries
   the version of that file.
-* The documented suite commands of tests/README.md, the re-scan checklist of docs/INCIDENT-RESPONSE.md, the
-  dashboards and matrix-driver test commands and the matrix-driver ``pyproject.toml`` comment read ``PIN_FILE``.
+* The documented suite commands of tests/README.md and the dashboards test commands read ``PIN_FILE``.
 """
 
 from __future__ import annotations
 
 import re
-import tomllib
 
 import sanitize_scan
 
 ROOT = sanitize_scan.REPO_ROOT
-PIN_FILE = "tests/requirements-test.txt"
-PIN_FILES = (PIN_FILE, "tools/stage_model/requirements.txt")
+PIN_FILE = "requirements-test.txt"
+PIN_FILES = (PIN_FILE, "tools/stage_model/requirements-cluster.txt")
 TEST_PACKAGES = ("pytest", "pyyaml", "jsonschema", "defusedxml")
 SPDX_HEADER = ["# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.",
                "# SPDX-" "License-Identifier: MIT-0"]
@@ -48,12 +43,8 @@ PIN_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)(?:\[[\w,.-]+\])?==([A-Za-z0-
 
 # Files whose documented test commands must read PIN_FILE, with the suites each one runs.
 PIN_FILE_COMMANDS = {
-    "tests/README.md": ("tests/manifests", "tests/scripts", "tests/terraform", "tests/publish", "tests/dashboards",
-                        "tools/matrix_driver/tests"),
-    "docs/INCIDENT-RESPONSE.md": ("tests/publish", "tests/scripts/test_152_stage_model_hygiene.py"),
+    "tests/README.md": ("tests/manifests", "tests/scripts", "tests/terraform", "tests/publish", "tests/dashboards"),
     "tests/dashboards/README.md": ("tests/dashboards",),
-    "tools/matrix_driver/README.md": ("tools/matrix_driver/tests",),
-    "tools/matrix_driver/pyproject.toml": ("tools/matrix_driver/tests",),
 }
 
 
@@ -67,11 +58,9 @@ def _line(text: str, pos: int) -> int:
 
 
 def _texts() -> dict[str, str]:
-    """Tracked text files outside the excluded prefix: ``{path: text}``."""
+    """Tracked text files the public tree ships: ``{path: text}``."""
     out: dict[str, str] = {}
-    for rel in sanitize_scan.tracked_files():
-        if rel.startswith(sanitize_scan.ALLOWLIST_PREFIX):
-            continue
+    for rel in sanitize_scan.public_files():
         text = sanitize_scan.read_text(rel)
         if text is not None:
             out[rel] = text
@@ -114,17 +103,6 @@ def test_pin_file_has_the_header_and_pins_every_package_exactly() -> None:
     pins = _pins(PIN_FILE)
     missing = [p for p in TEST_PACKAGES if p not in pins]
     assert not missing, f"{PIN_FILE} must pin {missing}"
-
-
-def test_defusedxml_has_one_version_in_the_test_pins_and_the_demo_bench_dev_group() -> None:
-    version = _pins(PIN_FILE).get("defusedxml")
-    assert version, f"{PIN_FILE} must pin defusedxml (the parser of the lib_xml helpers)"
-    project = tomllib.loads((ROOT / "tools/demo_bench/pyproject.toml").read_text(encoding="utf-8"))
-    dev = [r for r in project["dependency-groups"]["dev"] if _norm(re.split(r"[=<>!~;\[ ]", r, maxsplit=1)[0]) == "defusedxml"]
-    assert dev == [f"defusedxml=={version}"], f"the dev group of tools/demo_bench pins defusedxml=={version}: {dev}"
-    lock = tomllib.loads((ROOT / "tools/demo_bench/uv.lock").read_text(encoding="utf-8"))
-    locked = [p["version"] for p in lock["package"] if p["name"] == "defusedxml"]
-    assert locked == [version], f"tools/demo_bench/uv.lock resolves defusedxml {version}: {locked}"
 
 
 def test_pin_files_hold_exact_pins_only() -> None:

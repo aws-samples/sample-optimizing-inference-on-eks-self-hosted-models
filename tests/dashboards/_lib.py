@@ -17,7 +17,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 DASH = ROOT / "dashboards"
 DYNAMO_REPO = Path(os.environ.get("DYNAMO_REPO", ROOT.parent / "dynamo"))
-TAG = "v1.5.1"
+TAG = "v1.6.1"
 CATALOG_PATH = "docs/fern/pages/reference/observability/metrics-catalog.mdx"
 
 VENDORED = {
@@ -31,7 +31,7 @@ SUFFIX_RE = re.compile(r"_(bucket|sum|count)$")
 
 
 def git_show(path: str) -> str:
-    """Return a file from the Dynamo repo at tag v1.5.1.
+    """Return a file from the Dynamo repo at tag v1.6.1.
 
     Skips the calling test, with a reason naming ``DYNAMO_REPO``, when there is no Dynamo checkout (as tests/manifests and
     tests/publish do); a checkout that lacks the tag or the file still fails loudly.
@@ -95,7 +95,7 @@ def metric_selectors(expr: str) -> list[tuple[str, str | None]]:
 
     Label names are NOT metrics: identifiers inside ``by/without/on/ignoring/group_*(...)`` and
     label keys inside ``{...}`` matchers (e.g. ``dynamo_component_type``,
-    ``dynamo_graph_deployment``, labels added by the Dynamo v1.5.1 operator PodMonitors) are
+    ``dynamo_graph_deployment``, labels added by the Dynamo v1.6.1 operator PodMonitors) are
     skipped. Only identifiers in metric position are returned.
     """
     masked = LABEL_LIST_RE.sub(lambda m: " " * len(m.group(0)), expr)

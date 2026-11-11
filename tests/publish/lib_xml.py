@@ -8,7 +8,7 @@ with its defaults: any entity declaration (internal, external or unparsed) and a
 ``ForbiddenXmlError`` (``defusedxml.DefusedXmlException``) before anything is expanded. A DOCTYPE without
 declarations is accepted (the SVG files matplotlib writes carry one) and the external DTD it names is never read.
 The tree is the one ``xml.etree.ElementTree.parse`` builds, with its ``{namespace}tag`` names. defusedxml is pinned
-in ``tests/requirements-test.txt``; this module imports nothing from the standard library ``xml`` package.
+in ``requirements-test.txt``; this module imports nothing from the standard library ``xml`` package.
 """
 
 from __future__ import annotations

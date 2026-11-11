@@ -45,7 +45,7 @@ if str(TESTS) not in sys.path:
 
 @pytest.fixture(scope="session")
 def sm() -> ModuleType:
-    """Import ``tools/stage_model/stage_model.py`` by path (a missing file fails every test: RED)."""
+    """Import ``tools/stage_model/stage_model.py`` by path (a missing file fails every test)."""
     assert MODULE_PATH.is_file(), "tools/stage_model/stage_model.py must exist"
     spec = importlib.util.spec_from_file_location("stage_model", MODULE_PATH)
     assert spec is not None and spec.loader is not None

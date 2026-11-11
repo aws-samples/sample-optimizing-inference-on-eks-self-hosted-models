@@ -1,7 +1,6 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
-"""Process audit of ``scripts/gen_env.py`` (static analysis: Semgrep dangerous-subprocess-use-audit, Bandit B603), written
-before the fix (RED).
+"""Process audit of ``scripts/gen_env.py`` (static analysis: Semgrep dangerous-subprocess-use-audit, Bandit B603).
 
 Contract: without ``--from-json`` the script runs ``[<terraform on PATH>, -chdir=<repo>/terraform/cluster, output,
 -json]``: the executable resolved with ``shutil.which`` (absent: the refusal "terraform is not on PATH", nothing

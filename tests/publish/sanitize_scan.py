@@ -8,6 +8,7 @@ forbidden literal themselves.
 
 from __future__ import annotations
 
+import functools
 import re
 import subprocess
 from pathlib import Path
@@ -16,8 +17,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 PLACEHOLDER_ACCOUNT = "1234" + "56789012"  # the documented placeholder (AWS documentation convention)
 
-# Hits that remain on purpose: docs/sdd/* is append-only history and is excluded from the public export.
-ALLOWLIST_PREFIX = "docs/sdd/"
+# The export allowlist decides which tracked paths the public tree ships; it is not shipped itself. The guards scan
+# the paths it exports, and every tracked file when it is absent (a clone of the public tree).
+EXPORT_ALLOWLIST = REPO_ROOT / "scripts" / "export-allowlist.txt"
 
 _PUBLIC_AMAZON_SUBDOMAINS = {"aws", "docs.aws", "console.aws", "www", "us-east-1.console.aws"}
 _PUBLIC_EMAIL_DOMAINS = {"example.com", "example.org", "users.noreply.github.com", "noreply.github.com"}
@@ -79,6 +81,41 @@ def tracked_files() -> list[str]:
     return [p for p in out.split("\0") if p and ((REPO_ROOT / p).is_file() or (REPO_ROOT / p).is_symlink())]
 
 
+@functools.cache
+def _export_rules() -> tuple[tuple[str, bool], ...]:
+    """``(path or dir/, exported)`` per rule of ``EXPORT_ALLOWLIST``; empty when the file is absent."""
+    if not EXPORT_ALLOWLIST.is_file():
+        return ()
+    rules = []
+    for line in EXPORT_ALLOWLIST.read_text(encoding="utf-8").splitlines():
+        rule = line.split("#", 1)[0].strip()
+        if rule:
+            rules.append((rule.removeprefix("!"), not rule.startswith("!")))
+    return tuple(rules)
+
+
+def is_public(rel: str) -> bool:
+    """True when the public tree ships ``rel``.
+
+    Args:
+        rel: Tracked path relative to the repository root.
+
+    Returns:
+        The verdict of the longest ``EXPORT_ALLOWLIST`` rule that matches ``rel`` (``!`` marks a path left out), and
+        True when no rule matches or there is no allowlist.
+    """
+    longest, public = -1, True
+    for path, exported in _export_rules():
+        if (rel == path or (path.endswith("/") and rel.startswith(path))) and len(path) > longest:
+            longest, public = len(path), exported
+    return public
+
+
+def public_files() -> list[str]:
+    """Tracked paths (``tracked_files``) that the public tree ships (``is_public``)."""
+    return [rel for rel in tracked_files() if is_public(rel)]
+
+
 def read_text(rel: str) -> str | None:
     """File text, or ``None`` for binary files (NUL byte) and symlinks."""
     path = REPO_ROOT / rel
@@ -90,12 +127,10 @@ def read_text(rel: str) -> str | None:
     return data.decode("utf-8", errors="ignore")
 
 
-def scan_tree(*, include_allowlisted: bool) -> dict[str, list[tuple[str, str]]]:
-    """Scan the tracked tree; ``{path: hits}`` for files with at least one hit."""
+def scan_tree() -> dict[str, list[tuple[str, str]]]:
+    """Scan the files the public tree ships (``public_files``); ``{path: hits}`` for files with at least one hit."""
     result: dict[str, list[tuple[str, str]]] = {}
-    for rel in tracked_files():
-        if rel.startswith(ALLOWLIST_PREFIX) != include_allowlisted:
-            continue
+    for rel in public_files():
         text = read_text(rel)
         if text is None:
             continue

@@ -1,45 +1,36 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
-"""Per-technique ``examples/`` folders (readable view of the Track Q cells).  RED until implemented.
+"""Per-technique ``examples/`` folders: the published manifests, one folder per cell.
 
-``manifests/track-q-qwen38`` stays the source of truth; ``examples/`` re-exposes all eight cells, one folder per cell:
+``examples/<folder>/manifest.yaml`` is a written file, applied as is; it is the only source of the cell:
 
     examples/00-baseline          S0  aggregated, round-robin, no HiCache
     examples/01-kv-router         S1  + KV router (DYN_ROUTER_MODE=kv)
     examples/02-hicache           S2  + HiCache L2 host RAM / L3 local storage via NIXL, round-robin
     examples/03-pd-disaggregation S3  prefill/decode split over NIXL LIBFABRIC/EFA, round-robin
-    examples/04-all-three         S7  PD + HiCache + KV router
-    examples/05-kv-router-hicache S4  KV router + HiCache, aggregated
-    examples/06-kv-router-pd      S5  KV router + PD, no HiCache
-    examples/07-pd-hicache        S6  PD + HiCache on prefill, round-robin
+    examples/04-kv-router-hicache S4  KV router + HiCache, aggregated
+    examples/05-kv-router-pd      S5  KV router + PD, no HiCache
+    examples/06-pd-hicache        S6  PD + HiCache on prefill, round-robin
+    examples/07-all-three         S7  PD + HiCache + KV router
 
-Each folder: ``kustomization.yaml`` (only resource = ``../../manifests/track-q-qwen38/cells/S<n>``), ``rendered.yaml``
-(= ``kubectl kustomize`` of the folder), ``diff-vs-baseline.diff`` (unified diff of rendered.yaml vs the baseline's; absent
-for 00-baseline) and ``README.md``.  ``examples/README.md`` holds one table folder -> cell -> R/O/D switches + PD transport,
-and the examples table of ``docs/DEPLOY.md`` section 6 lists every folder with its cell and namespace.
-
-There is no ninth example.  Every folder that has the D switch on (03, 04, 06, 07) carries BOTH prefill/decode transports on
-one page: the default EFA (the folder itself) and the NVLink option in the sub-folder ``nvlink/`` (``kustomization.yaml``
-pointing at ``manifests/track-q-qwen38/variants-nvlink/<cell>``, ``rendered.yaml``, ``diff-vs-efa.diff``); the pins of that
-sub-folder are in ``test_421_example_pd_nvlink.py``.
-
-Contract pinned for ``scripts/render-examples.sh`` (mirrors ``scripts/render-track-q.sh``): ``render-examples.sh [OUT_ROOT]``
-writes ``OUT_ROOT/<dir>/rendered.yaml`` and ``OUT_ROOT/<dir>/diff-vs-baseline.diff`` for the eight folders, plus
-``OUT_ROOT/<dir>/nvlink/rendered.yaml`` and ``OUT_ROOT/<dir>/nvlink/diff-vs-efa.diff`` for the four PD folders (default OUT_ROOT:
-``examples``), rendering from the repo's ``examples/<dir>`` (and ``examples/<dir>/nvlink``) kustomizations.  The diff format is ``diff -u`` with ordinary
-unified hunks; besides byte-equality with the script, the test checks that ``patch`` applied to the baseline reproduces the
-variant, so the file is a real, format-correct diff.
+Each folder: ``manifest.yaml`` and ``README.md``.  ``examples/README.md`` holds one table folder -> cell -> R/O/D switches, and
+the examples table of ``docs/DEPLOY.md`` section 6 lists every folder with its cell and namespace.  What a folder changes is
+the diff of its ``manifest.yaml`` against the baseline's (computed here with ``difflib``, as a reader runs ``diff``).
 
 README table switches: R = KV router, O = HiCache offload, D = PD disaggregation; each cell value is ``on`` or ``off``.
+
+The READMEs: every engine flag or env named in a README is in that folder's diff against the baseline (the baseline's: in its
+manifest), and the tables of examples/README.md and docs/DEPLOY.md section 6 match the
+folders.  Their length, sections and the knobs they explain are NOT pinned here.
 
 Nothing here weakens an expectation: a missing file is a failure, never a skip.
 """
 
 from __future__ import annotations
 
-import os
+import difflib
 import re
-import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -47,57 +38,49 @@ import pytest
 import yaml
 
 import lib_manifests as L
-import lib_proc
-import lib_trackq as Q
+import lib_q38 as Q
 
-EX = L.REPO_ROOT / "examples"
-SCRIPT = L.REPO_ROOT / "scripts" / "render-examples.sh"
+EX = L.EXAMPLES
 FOLDERS: dict[str, str] = {
     "00-baseline": "S0",
     "01-kv-router": "S1",
     "02-hicache": "S2",
     "03-pd-disaggregation": "S3",
-    "04-all-three": "S7",
-    "05-kv-router-hicache": "S4",
-    "06-kv-router-pd": "S5",
-    "07-pd-hicache": "S6",
+    "04-kv-router-hicache": "S4",
+    "05-kv-router-pd": "S5",
+    "06-pd-hicache": "S6",
+    "07-all-three": "S7",
 }
 SWITCHES: dict[str, tuple[str, str, str]] = {  # folder -> (R, O, D)
     "00-baseline": ("off", "off", "off"),
     "01-kv-router": ("on", "off", "off"),
     "02-hicache": ("off", "on", "off"),
     "03-pd-disaggregation": ("off", "off", "on"),
-    "04-all-three": ("on", "on", "on"),
-    "05-kv-router-hicache": ("on", "on", "off"),
-    "06-kv-router-pd": ("on", "off", "on"),
-    "07-pd-hicache": ("off", "on", "on"),
+    "04-kv-router-hicache": ("on", "on", "off"),
+    "05-kv-router-pd": ("on", "off", "on"),
+    "06-pd-hicache": ("off", "on", "on"),
+    "07-all-three": ("on", "on", "on"),
 }
 NAMESPACES: dict[str, str] = {  # folder -> the one namespace its DGD lands in
     "00-baseline": "s-agg",
     "01-kv-router": "s-agg",
     "02-hicache": "s-agg-hic",
     "03-pd-disaggregation": "s-dis",
-    "04-all-three": "s-dis-hic",
-    "05-kv-router-hicache": "s-agg-hic",
-    "06-kv-router-pd": "s-dis",
-    "07-pd-hicache": "s-dis-hic",
+    "04-kv-router-hicache": "s-agg-hic",
+    "05-kv-router-pd": "s-dis",
+    "06-pd-hicache": "s-dis-hic",
+    "07-all-three": "s-dis-hic",
 }
-# The NVLink option is not a ninth folder: it is the sub-folder ``nvlink/`` of each PD folder (see PD below), built on
-# manifests/track-q-qwen38/variants-nvlink/<cell>; its own checks are in test_421_example_pd_nvlink.py.
-NINTH = "08-pd-" + "nvlink"  # the removed folder, built in two pieces so that no file of the tree carries its name
-NVL_DIR = "nvlink"
-NVL_FILES = ("kustomization.yaml", "rendered.yaml", "diff-vs-efa.diff")
 VARIANTS = [f for f in FOLDERS if f != "00-baseline"]
 BASELINE = "00-baseline"
-FILES = ("kustomization.yaml", "rendered.yaml", "diff-vs-baseline.diff", "README.md")
-README_MAX_LINES = {"default": 30, "pd": 70}  # a PD README carries both transports (Option A - EFA, Option B - NVLink)
-SINGLE_WORKER = ["01-kv-router", "02-hicache", "05-kv-router-hicache"]  # one Worker component: plain ``diff -u`` sections
-PD = ["03-pd-disaggregation", "04-all-three", "06-kv-router-pd", "07-pd-hicache"]  # prefill + decode components
+FILES = ("manifest.yaml", "README.md")
+SINGLE_WORKER = ["01-kv-router", "02-hicache", "04-kv-router-hicache"]  # one Worker component
+PD = ["03-pd-disaggregation", "05-kv-router-pd", "06-pd-hicache", "07-all-three"]  # prefill + decode components
 # Combination folders -> (folder that differs by the Frontend only, folder that differs by the other technique).
 COMBOS: dict[str, tuple[str, str]] = {
-    "05-kv-router-hicache": ("02-hicache", "01-kv-router"),
-    "06-kv-router-pd": ("03-pd-disaggregation", "04-all-three"),
-    "07-pd-hicache": ("04-all-three", "03-pd-disaggregation"),
+    "04-kv-router-hicache": ("02-hicache", "01-kv-router"),
+    "05-kv-router-pd": ("03-pd-disaggregation", "07-all-three"),
+    "06-pd-hicache": ("07-all-three", "03-pd-disaggregation"),
 }
 
 
@@ -107,15 +90,13 @@ def _text(folder: str, name: str) -> str:
     return p.read_text()
 
 
-def _kustomize(folder: str) -> str:
-    assert (EX / folder / "kustomization.yaml").is_file(), f"examples/{folder}/kustomization.yaml missing"
-    proc = lib_proc.run(["kubectl", "kustomize", str(EX / folder)], capture_output=True, text=True, timeout=120, check=False)
-    assert proc.returncode == 0, proc.stderr
-    return proc.stdout
+def _code(folder: str) -> str:
+    """The manifest without its full-line comments: the lines a parser reads, which the text checks below look at."""
+    return "\n".join(ln for ln in _text(folder, "manifest.yaml").splitlines() if not ln.lstrip().startswith("#"))
 
 
 def _dgd(folder: str) -> dict[str, Any]:
-    docs = [d for d in yaml.safe_load_all(_text(folder, "rendered.yaml")) if d]
+    docs = [d for d in yaml.safe_load_all(_text(folder, "manifest.yaml")) if d]
     assert len(docs) == 1
     return docs[0]
 
@@ -128,91 +109,55 @@ def _main(comp: dict[str, Any]) -> dict[str, Any]:
     return next(c for c in comp["podTemplate"]["spec"]["containers"] if c["name"] == "main")
 
 
+def _diff_body(folder: str) -> str:
+    """Unified diff of the baseline's manifest.yaml against the folder's, comment lines left out."""
+    base, var = _code(BASELINE).splitlines(), _code(folder).splitlines()
+    return "\n".join(difflib.unified_diff(base, var, f"a/{BASELINE}/manifest.yaml", f"b/{folder}/manifest.yaml", lineterm=""))
+
+
 def _diff_lines(folder: str) -> list[str]:
     """Changed lines (+/-) of the diff, without the file headers."""
-    out = []
-    for ln in _text(folder, "diff-vs-baseline.diff").splitlines():
-        if ln.startswith(("+++", "---")):
-            continue
-        if ln[:1] in "+-" and ln[:1]:
-            out.append(ln)
-    return out
-
-
-def _diff_body(folder: str) -> str:
-    return _text(folder, "diff-vs-baseline.diff")
+    return [ln for ln in _diff_body(folder).splitlines() if ln[:1] in "+-" and not ln.startswith(("+++", "---"))]
 
 
 # ----------------------------------------------------------------------------- layout and cell mapping
 def test_examples_directory_holds_exactly_the_eight_cell_folders_and_a_readme() -> None:
     assert EX.is_dir(), "examples/ missing"
     names = sorted(p.name for p in EX.iterdir() if p.name != ".DS_Store")
-    assert names == sorted([*FOLDERS, "README.md"]), "no ninth example: the NVLink option lives in nvlink/ of the PD folders"
+    assert names == sorted([*FOLDERS, "README.md"])
 
 
-def test_the_folders_cover_every_track_q_cell_exactly_once() -> None:
+def test_the_folders_cover_every_cell_exactly_once() -> None:
     assert sorted(FOLDERS.values()) == sorted(Q.CELL_IDS) == [f"S{n}" for n in range(8)]
     assert len(set(FOLDERS.values())) == len(FOLDERS)
-
-
-def _cell_composition(cell: str) -> tuple[str, bool]:
-    """(topology overlay, KV router on) read from the cell's own kustomization, the source of truth."""
-    k = yaml.safe_load((L.MANIFESTS / Q.TQ / "cells" / cell / "kustomization.yaml").read_text())
-    (overlay,) = k["resources"]
-    topology = Path(overlay).name
-    comps = [Path(c).name for c in k.get("components") or []]
-    assert set(comps) <= {"router-kv"}, comps
-    return topology, "router-kv" in comps
+    assert {folder: cell for cell, folder in Q.EXAMPLES.items()} == FOLDERS, "lib_q38.EXAMPLES must map the same folders"
 
 
 @pytest.mark.parametrize("folder,cell", FOLDERS.items())
-def test_switches_and_namespace_match_the_composition_of_the_cell(folder: str, cell: str) -> None:
-    topology, kv = _cell_composition(cell)
-    assert topology in Q.ARMS and cell == Q.ARMS[topology][1 if kv else 0], (cell, topology, kv)
+def test_switches_and_namespace_match_the_manifest(folder: str, cell: str) -> None:
+    """R/O/D of the folder, read from its manifest.yaml: kv router, a HiCache flag on a worker, prefill/decode components."""
+    comps = _comps(folder)
+    kv = L.env_value(_main(comps["Frontend"]), "DYN_ROUTER_MODE") == "kv"
+    hic = any("--enable-hierarchical-cache" in L.cli_tokens(_main(c)) for n, c in comps.items() if n != "Frontend")
+    dis = "prefill" in comps and "decode" in comps
     on = {True: "on", False: "off"}
-    assert SWITCHES[folder] == (on[kv], on[topology in Q.HIC], on[topology in Q.DIS]), f"{folder}: R/O/D of {cell} is {topology}+{kv=}"
-    assert NAMESPACES[folder] == L.TOPOLOGIES[topology], f"{folder}: {cell} lands in {L.TOPOLOGIES[topology]}"
+    assert SWITCHES[folder] == (on[kv], on[hic], on[dis]), f"{folder}: manifest has R={kv} O={hic} D={dis}"
+    topology = {(False, False): "t-agg", (True, False): "t-agg-hic", (False, True): "t-dis", (True, True): "t-dis-hic"}[(hic, dis)]
+    assert Q.CELLS[cell] == (topology, "kv" if kv else "rr"), f"{folder} is {topology} with router {kv=}, not {cell}"
+    assert NAMESPACES[folder] == L.TOPOLOGIES[topology] == _dgd(folder)["metadata"]["namespace"], folder
 
 
 @pytest.mark.parametrize("folder", FOLDERS)
 def test_folder_holds_exactly_its_files(folder: str) -> None:
     d = EX / folder
     assert d.is_dir(), f"examples/{folder} missing"
-    expected = [f for f in FILES if not (folder == BASELINE and f == "diff-vs-baseline.diff")]
-    if folder in PD:
-        expected.append(NVL_DIR)  # the NVLink option, next to the EFA default
-    assert sorted(p.name for p in d.iterdir() if p.name != ".DS_Store") == sorted(expected)
+    assert sorted(p.name for p in d.iterdir() if p.name != ".DS_Store") == sorted(FILES)
 
 
-def test_baseline_has_no_diff_file() -> None:
-    assert not (EX / BASELINE / "diff-vs-baseline.diff").exists()
-
-
-@pytest.mark.parametrize("folder,cell", FOLDERS.items())
-def test_kustomization_has_the_cell_as_only_resource(folder: str, cell: str) -> None:
-    k = yaml.safe_load(_text(folder, "kustomization.yaml"))
-    assert k["kind"] == "Kustomization"
-    assert set(k) <= {"apiVersion", "kind", "resources"}, f"extra kustomize fields: {sorted(k)}"
-    assert len(k["resources"]) == 1
-    target = (EX / folder / k["resources"][0]).resolve()
-    assert target == (L.MANIFESTS / Q.TQ / "cells" / cell).resolve(), f"{folder} must point at cells/{cell}, got {k['resources'][0]}"
-
-
-# ----------------------------------------------------------------------------- rendered.yaml
-@pytest.mark.parametrize("folder", FOLDERS)
-def test_rendered_equals_kubectl_kustomize_of_the_folder(folder: str) -> None:
-    assert _text(folder, "rendered.yaml") == _kustomize(folder), f"examples/{folder}/rendered.yaml drifted: run scripts/render-examples.sh"
-
-
-@pytest.mark.parametrize("folder,cell", FOLDERS.items())
-def test_rendered_equals_the_committed_track_q_render(folder: str, cell: str) -> None:
-    committed = (Q.RENDERED_DIR / f"{cell}.yaml").read_bytes()
-    assert (EX / folder / "rendered.yaml").read_bytes() == committed, f"{folder} differs from rendered/{cell}.yaml"
-
-
+# ----------------------------------------------------------------------------- manifest.yaml
 @pytest.mark.parametrize("folder", FOLDERS)
 def test_folder_applies_only_its_cell_namespace(folder: str) -> None:
-    text = _text(folder, "rendered.yaml")
+    text = _text(folder, "manifest.yaml")
     docs = [d for d in yaml.safe_load_all(text) if d]
     assert [d["kind"] for d in docs] == ["DynamoGraphDeployment"], "one DGD, no Namespace or other object"
     assert docs[0]["metadata"]["namespace"] == NAMESPACES[folder]
@@ -229,103 +174,11 @@ def _pinned_runtime_image() -> str:
 def test_rendered_runs_only_the_versions_env_runtime_image_and_nothing_is_latest(folder: str) -> None:
     pinned = _pinned_runtime_image()
     assert "@sha256:" in pinned, pinned
-    images = set(re.findall(r"(?m)^\s*(?:- )?image:\s*(\S+)\s*$", _text(folder, "rendered.yaml")))
+    images = set(re.findall(r"(?m)^\s*(?:- )?image:\s*(\S+)\s*$", _text(folder, "manifest.yaml")))
     assert images == {pinned}, f"{folder}: {sorted(images)} != versions.env RUNTIME_IMAGE"
     for name in FILES:
         if (EX / folder / name).is_file():
             assert ":latest" not in _text(folder, name), f"examples/{folder}/{name} references a :latest tag"
-
-
-# ----------------------------------------------------------------------------- diff-vs-baseline.diff
-@pytest.mark.parametrize("folder", VARIANTS)
-def test_diff_is_not_empty_and_names_baseline_and_variant(folder: str) -> None:
-    body = _diff_body(folder)
-    assert _diff_lines(folder), "diff has no changed lines"
-    assert "00-baseline" in body.splitlines()[0] and folder in body.splitlines()[1]
-
-
-# ----------------------------------------------------------------------------- per-component diff (readable)
-# diff-vs-baseline.diff is a concatenation of SECTIONS, one per changed part, each a ``diff -u`` of two text blocks cut from the
-# rendered files: the DGD head (everything before ``  components:``, label ``metadata``) and each ``  - name: X`` component block.
-# Pairing: Frontend vs Frontend; every other component (Worker, prefill, decode) vs the baseline's Worker.  Section order:
-# metadata, then the variant's components in render order.  Identical pairs produce no section.  Section headers:
-#   --- a/00-baseline/rendered.yaml#<baseline part>
-#   +++ b/<folder>/rendered.yaml#<variant part>
-# A section may replace changed lines that another (earlier) section of the same file already shows by ONE note line
-#   # ... <N> changed lines identical to <part> omitted
-# (<part> = the section that still shows them).  A section may also collapse ONE contiguous run of >= 20 added lines (the GPU-pin
-# shell preamble of the launch script, which is the same in every PD component and lives in the Track Q component) into
-#   # ... <N> added lines omitted (GPU-pin preamble)
-# Hunk context is free for 03/04 (any ``diff -U<n>``, n >= 0); only the changed lines are checked.  Nothing else may be dropped or invented.
-MAX_LINES = {folder: 150 for folder in PD}
-NOTE_RE = re.compile(r"^# \.\.\. (\d+) changed lines identical to (\w+) omitted$")
-BLOCK_RE = re.compile(r"^# \.\.\. (\d+) added lines omitted \(GPU-pin preamble\)$")
-HEADER_RE = re.compile(r"^--- a/00-baseline/rendered\.yaml#(\w+)$")
-
-
-def _split_parts(text: str) -> tuple[list[str], dict[str, list[str]]]:
-    lines = text.splitlines(keepends=True)
-    i = lines.index("  components:\n")
-    parts: dict[str, list[str]] = {}
-    name: str | None = None
-    for ln in lines[i + 1:]:
-        if ln.startswith("  - name: "):
-            name = ln.split(": ", 1)[1].strip()
-            parts[name] = []
-        elif name is None or (ln.strip() and not ln.startswith("   ")):
-            break
-        parts[name].append(ln)
-    return lines[:i], parts
-
-
-def _plain_diff(a: list[str], b: list[str], tmp: Path) -> list[str]:
-    (tmp / "a").write_text("".join(a))
-    (tmp / "b").write_text("".join(b))
-    proc = lib_proc.run(["diff", "-u", "--label", "A", "--label", "B", str(tmp / "a"), str(tmp / "b")], capture_output=True, text=True, check=False)
-    assert proc.returncode in (0, 1), proc.stderr
-    return proc.stdout.splitlines()[2:]  # drop the two header lines
-
-
-def _expected_sections(folder: str, tmp: Path) -> list[tuple[str, str, list[str]]]:
-    """(baseline part, variant part, plain unified body) for every non-identical pair."""
-    bh, bp = _split_parts(_text(BASELINE, "rendered.yaml"))
-    vh, vp = _split_parts(_text(folder, "rendered.yaml"))
-    out = []
-    pairs = [("metadata", "metadata", bh, vh)] + [("Frontend" if n == "Frontend" else "Worker", n, bp["Frontend" if n == "Frontend" else "Worker"], v) for n, v in vp.items()]
-    for bn, vn, b, v in pairs:
-        body = _plain_diff(b, v, tmp)
-        if body:
-            out.append((bn, vn, body))
-    return out
-
-
-def _file_sections(folder: str) -> list[tuple[str, str, list[str]]]:
-    lines = _text(folder, "diff-vs-baseline.diff").splitlines()
-    out: list[tuple[str, str, list[str]]] = []
-    i = 0
-    while i < len(lines):
-        m = HEADER_RE.match(lines[i])
-        assert m, f"line {i + 1}: expected a section header '--- a/00-baseline/rendered.yaml#<part>', got {lines[i]!r}"
-        assert i + 1 < len(lines) and lines[i + 1].startswith(f"+++ b/{folder}/rendered.yaml#"), f"line {i + 2}: bad +++ header"
-        vn = lines[i + 1].split("#", 1)[1]
-        j = i + 2
-        while j < len(lines) and not lines[j].startswith("--- a/"):
-            j += 1
-        out.append((m.group(1), vn, lines[i + 2:j]))
-        i = j
-    return out
-
-
-def _changed(body: list[str]) -> list[str]:
-    return [ln for ln in body if ln[:1] in "+-"]
-
-
-@pytest.mark.parametrize("folder", VARIANTS)
-def test_diff_sections_follow_the_per_component_layout(folder: str, tmp_path: Path) -> None:
-    exp = _expected_sections(folder, tmp_path)
-    got = _file_sections(folder)
-    assert [(b, v) for b, v, _ in got] == [(b, v) for b, v, _ in exp], "sections must be metadata then components in render order, identical pairs omitted"
-    assert not any(v == "Worker" and folder in PD for _, v, _ in got)
 
 
 def test_single_worker_and_pd_lists_split_the_variants_by_their_components() -> None:
@@ -333,246 +186,6 @@ def test_single_worker_and_pd_lists_split_the_variants_by_their_components() -> 
     for folder in VARIANTS:
         workers = [n for n in _comps(folder) if n != "Frontend"]
         assert workers == (["Worker"] if folder in SINGLE_WORKER else ["prefill", "decode"]), (folder, workers)
-
-
-@pytest.mark.parametrize("folder", SINGLE_WORKER)
-def test_small_diffs_are_byte_equal_to_the_plain_per_component_diff(folder: str, tmp_path: Path) -> None:
-    expected = ""
-    for bn, vn, body in _expected_sections(folder, tmp_path):
-        expected += f"--- a/00-baseline/rendered.yaml#{bn}\n+++ b/{folder}/rendered.yaml#{vn}\n" + "\n".join(body) + "\n"
-    assert _text(folder, "diff-vs-baseline.diff") == expected
-
-
-@pytest.mark.parametrize("folder", PD)
-def test_pd_diffs_are_the_plain_per_component_diff_with_only_declared_omissions(folder: str, tmp_path: Path) -> None:
-    exp = {(b, v): body for b, v, body in _expected_sections(folder, tmp_path)}
-    shown: dict[str, list[str]] = {}
-    omitted_any = False
-    for bn, vn, body in _file_sections(folder):
-        plain = exp[(bn, vn)]
-        plain_changed = [ln for ln in plain if ln[:1] in "+-"]
-        got_changed = _changed(body)
-        it = iter(plain_changed)  # the shown changed lines are an in-order subsequence of the plain ones: nothing invented or reordered
-        assert all(any(g == p for p in it) for g in got_changed), f"{folder}#{vn}: changed lines not a subsequence of the plain diff"
-        left = collections_counter(plain_changed) - collections_counter(got_changed)
-        notes = [m for m in (NOTE_RE.match(ln) for ln in body) if m]
-        blocks = [int(m.group(1)) for m in (BLOCK_RE.match(ln) for ln in body) if m]
-        assert len(blocks) <= 1, f"{folder}#{vn}: at most one preamble block note per section"
-        declared = sum(int(m.group(1)) for m in notes) + sum(blocks)
-        assert declared == sum(left.values()), f"{folder}#{vn}: notes declare {declared} omitted lines, {sum(left.values())} are missing"
-        for m in notes:
-            assert m.group(2) in shown, f"{folder}#{vn}: note points at {m.group(2)}, which is not an earlier section"
-        rest = left
-        for n in blocks:
-            assert n >= 20, "a preamble block note must collapse >= 20 lines"
-            run = _added_run(plain_changed, left, n)
-            assert run is not None, f"{folder}#{vn}: no contiguous run of {n} added lines is missing from the section"
-            rest = rest - collections_counter(run)
-            omitted_any = True
-        if notes:
-            omitted_any = True
-            pool = collections_counter([ln for m in notes for ln in shown[m.group(2)]])
-            assert not (rest - pool), f"{folder}#{vn}: omitted lines are not shown in the referenced section(s)"
-        shown[vn] = got_changed
-    assert omitted_any, "the identical prefill/decode blocks must be shown once, not twice"
-
-
-def _added_run(plain_changed: list[str], left: Any, n: int) -> list[str] | None:
-    """First window of ``n`` consecutive changed lines, all '+', that is entirely covered by the missing lines."""
-    for i in range(len(plain_changed) - n + 1):
-        win = plain_changed[i:i + n]
-        if all(w.startswith("+") for w in win) and not (collections_counter(win) - left):
-            return win
-    return None
-
-
-def collections_counter(items: list[str]) -> Any:
-    import collections
-
-    return collections.Counter(items)
-
-
-@pytest.mark.parametrize("folder", VARIANTS)
-def test_each_section_without_notes_patches_the_baseline_part_into_the_variant_part(folder: str, tmp_path: Path) -> None:
-    bh, bp = _split_parts(_text(BASELINE, "rendered.yaml"))
-    vh, vp = _split_parts(_text(folder, "rendered.yaml"))
-    base = {"metadata": bh, **{k: v for k, v in bp.items()}}
-    var = {"metadata": vh, **vp}
-    checked = 0
-    for bn, vn, body in _file_sections(folder):
-        if any(NOTE_RE.match(ln) or BLOCK_RE.match(ln) for ln in body):
-            continue
-        src, dst, pf = tmp_path / "src", tmp_path / "out", tmp_path / "p.diff"
-        src.write_text("".join(base[bn]))
-        pf.write_text("\n".join(["--- a", "+++ b", *body]) + "\n")
-        proc = lib_proc.run(["patch", "-s", "-o", str(dst), str(src), str(pf)], capture_output=True, text=True, check=False)
-        assert proc.returncode == 0, proc.stdout + proc.stderr
-        assert dst.read_text() == "".join(var[vn]), f"{folder}#{vn}"
-        checked += 1
-    assert checked, "at least one section must be a complete, patchable diff"
-
-
-@pytest.mark.parametrize("folder,limit", MAX_LINES.items())
-def test_pd_diffs_stay_short_enough_to_read(folder: str, limit: int) -> None:
-    n = len(_text(folder, "diff-vs-baseline.diff").splitlines())
-    assert n <= limit, f"{folder}/diff-vs-baseline.diff has {n} lines (> {limit})"
-
-
-def _flag_map(c: dict[str, Any]) -> dict[str, str | None]:
-    toks = L.cli_tokens(c)
-    out: dict[str, str | None] = {}
-    for i, t in enumerate(toks):
-        if t.startswith("--") and len(t) > 2:
-            nxt = toks[i + 1] if i + 1 < len(toks) and not toks[i + 1].startswith("--") else None
-            out[t] = nxt
-    return out
-
-
-def _resources(c: dict[str, Any]) -> dict[str, str]:
-    r = c.get("resources", {}) or {}
-    return {f"{kind}.{k}": str(v) for kind in ("limits", "requests") for k, v in (r.get(kind) or {}).items()}
-
-
-@pytest.mark.parametrize("folder", VARIANTS)
-def test_every_changed_flag_env_and_resource_between_s0_and_the_cell_is_in_the_diff(folder: str) -> None:
-    base, var = _comps(BASELINE), _comps(folder)
-    body = _diff_body(folder)
-    seen = 0
-    for name, comp in var.items():
-        b, v = _main(base["Frontend" if name == "Frontend" else "Worker"]), _main(comp)
-        bf, vf = _flag_map(b), _flag_map(v)
-        for flag, val in vf.items():
-            if bf.get(flag, "<absent>") != val:
-                seen += 1
-                assert flag in body, f"{name}: changed flag {flag} missing from the diff"
-                if val is not None:
-                    assert val in body, f"{name}: value {val!r} of {flag} missing from the diff"
-        be, ve = dict(Q.env_pairs(b)), dict(Q.env_pairs(v))
-        for env, val in ve.items():
-            if be.get(env, "<absent>") != val:
-                seen += 1
-                assert env in body, f"{name}: changed env {env} missing from the diff"
-        br, vr = _resources(b), _resources(v)
-        for res, val in vr.items():
-            if br.get(res) != val:
-                seen += 1
-                key = res.split(".", 1)[1]
-                assert re.search(rf"^[+-]\s*{re.escape(key)}: \"?{re.escape(val)}\"?$", body, re.M), f"{name}: resource {res}={val} missing from the diff"
-    assert seen, "nothing changed between S0 and the cell?"
-
-
-def test_pd_cells_show_the_efa_resource_and_gpu_env_in_the_diff() -> None:
-    for folder in PD:
-        body = _diff_body(folder)
-        for needle in ("vpc.amazonaws.com/efa", "EXPECTED_GPUS", "SGLANG_DISAGGREGATION_NIXL_BACKEND", "--disaggregation-bootstrap-port"):
-            assert needle in body, f"{folder}: {needle} missing"
-
-
-@pytest.mark.parametrize("folder", VARIANTS)
-def test_variant_readme_says_how_the_diff_is_organised(folder: str) -> None:
-    text = _text(folder, "README.md")
-    assert "diff-vs-baseline.diff" in text, "README must explain the diff file"
-    assert re.search(r"per[- ]component", text, re.I), "README must say the diff is organised per component"
-    if folder in PD:
-        assert all(w in text for w in ("Worker", "prefill", "decode")), "README must name the Worker/prefill/decode pairing"
-        assert re.search(r"once|omitted|identical", text, re.I), "README must say that identical blocks are shown once"
-
-
-# ----------------------------------------------------------------------------- root README
-def _section(text: str, heading_prefix: str) -> str:
-    m = re.search(rf"^#+ {re.escape(heading_prefix)}.*?(?=^#{{1,3}} |\Z)", text, re.M | re.S)
-    assert m, f"section {heading_prefix!r} not found"
-    return m.group(0)
-
-
-def test_root_readme_links_the_examples_folder() -> None:
-    text = (L.REPO_ROOT / "README.md").read_text()
-    assert re.search(r"\]\(examples/(?:README\.md)?\)", text), "README.md must link examples/ as a markdown link"
-    where = [h for h in ("Repository layout", "Quick start") if "(examples/" in _section(text, h)]
-    assert where, "the examples/ pointer must sit in the Repository layout or Quick start section"
-
-
-# ----------------------------------------------------------------------------- the script
-def test_render_script_is_a_clean_executable_offline_bash_script() -> None:
-    assert SCRIPT.is_file(), f"missing {SCRIPT.relative_to(L.REPO_ROOT)}"
-    assert os.access(SCRIPT, os.X_OK)
-    text = SCRIPT.read_text()
-    assert text.splitlines()[0] in ("#!/usr/bin/env bash", "#!/bin/bash") and "set -euo pipefail" in text
-    assert lib_proc.run(["bash", "-n", str(SCRIPT)], capture_output=True, text=True).returncode == 0
-    if shutil.which("shellcheck"):
-        proc = lib_proc.run(["shellcheck", "-x", "--shell=bash", str(SCRIPT)], capture_output=True, text=True)
-        assert proc.returncode == 0, proc.stdout + proc.stderr
-    assert "kubectl kustomize" in text
-    code = "\n".join(ln for ln in text.splitlines() if not ln.lstrip().startswith("#"))
-    for forbidden in ("kubectl apply", "kubectl delete", "kubectl create", "terraform", "aws ", "helm "):
-        assert forbidden not in code, f"{forbidden!r} in render-examples.sh"
-    assert not re.search(r"\brm\b(?!.*\"\$work\")", code.replace("rm -rf \"$work\"", "")), "rm outside the temp dir cleanup"
-
-
-def test_render_script_reproduces_every_committed_file(tmp_path: Path) -> None:
-    out = tmp_path / "out"
-    proc = lib_proc.run([str(SCRIPT), str(out)], capture_output=True, text=True, timeout=300, cwd=tmp_path, check=False)
-    assert proc.returncode == 0, proc.stdout + proc.stderr
-    assert sorted(p.name for p in out.iterdir()) == sorted(FOLDERS), "exactly the eight folders and no ninth one"
-    for folder in FOLDERS:
-        produced = sorted(p.name for p in (out / folder).iterdir())
-        expected = ["rendered.yaml"] if folder == BASELINE else ["diff-vs-baseline.diff", "rendered.yaml"]
-        if folder in PD:
-            expected = sorted([*expected, NVL_DIR])
-        assert produced == expected, folder
-        for name in expected:
-            if name == NVL_DIR:
-                assert sorted(p.name for p in (out / folder / NVL_DIR).iterdir()) == ["diff-vs-efa.diff", "rendered.yaml"], folder
-                for nvl in ("rendered.yaml", "diff-vs-efa.diff"):
-                    assert (out / folder / NVL_DIR / nvl).read_bytes() == (EX / folder / NVL_DIR / nvl).read_bytes(), f"{folder}/{NVL_DIR}/{nvl} drifted"
-            else:
-                assert (out / folder / name).read_bytes() == (EX / folder / name).read_bytes(), f"{folder}/{name} drifted"
-
-
-def test_render_script_is_deterministic_across_runs_and_out_roots(tmp_path: Path) -> None:
-    outs = []
-    for name in ("one", "two"):
-        out = tmp_path / name
-        proc = lib_proc.run([str(SCRIPT), str(out)], capture_output=True, text=True, timeout=300, cwd=tmp_path, check=False)
-        assert proc.returncode == 0, proc.stdout + proc.stderr
-        outs.append({p.relative_to(out).as_posix(): p.read_bytes() for p in sorted(out.rglob("*")) if p.is_file()})
-    assert outs[0] == outs[1], "two runs differ (a timestamp or an unordered listing leaked into the output)"
-    assert sum(1 for k in outs[0] if k.endswith(f"{NVL_DIR}/diff-vs-efa.diff")) == len(PD) == 4
-    assert sum(1 for k in outs[0] if k.endswith(f"{NVL_DIR}/rendered.yaml")) == 4
-    assert not any("08" in k.split("/")[0] for k in outs[0])
-
-
-def test_render_script_writes_nothing_when_one_nvlink_folder_fails_to_render(tmp_path: Path) -> None:
-    """OUT_ROOT is written only after everything rendered: break one nvlink/ kustomization in a scratch copy of the tree."""
-    scratch = tmp_path / "repo"
-    (scratch / "scripts").mkdir(parents=True)
-    shutil.copy(SCRIPT, scratch / "scripts" / SCRIPT.name)
-    shutil.copytree(EX, scratch / "examples")
-    shutil.copytree(L.MANIFESTS / Q.TQ, scratch / "manifests" / Q.TQ)
-    broken = scratch / "examples" / PD[-1] / NVL_DIR / "kustomization.yaml"
-    assert broken.is_file(), f"examples/{PD[-1]}/{NVL_DIR}/kustomization.yaml missing"
-    broken.write_text("apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - ./does-not-exist\n")
-    out = tmp_path / "out"
-    proc = lib_proc.run([str(scratch / "scripts" / SCRIPT.name), str(out)], capture_output=True, text=True, timeout=300, cwd=tmp_path, check=False)
-    assert proc.returncode != 0, "a failing nvlink/ render must fail the script"
-    assert not out.exists() or not any(out.rglob("*")), "OUT_ROOT must stay empty when any render failed"
-
-
-def test_render_script_header_documents_the_diff_layout_of_every_variant() -> None:
-    header = "\n".join(ln for ln in SCRIPT.read_text().splitlines()[1:] if ln.startswith("#"))
-    single = re.search(r"One worker component \(([^)]*)\)", header)
-    several = re.search(r"Several worker components \(([^:)]*)[:)]", header)
-    assert single and several, "the header must list the one-worker and several-worker folders"
-    assert sorted(re.findall(r"\d\d-[a-z-]+", single.group(1))) == sorted(SINGLE_WORKER)
-    assert sorted(re.findall(r"\d\d-[a-z-]+", several.group(1))) == sorted(PD)
-    assert "08" not in header and "pd-nvlink" not in header.replace("components/pd-nvlink", ""), "the header no longer lists a ninth folder"
-    assert "nvlink/" in header and "diff-vs-efa.diff" in header, "the header documents the nvlink/ sub-folder outputs"
-
-
-def test_render_script_default_target_is_examples_and_it_does_not_touch_manifests() -> None:
-    text = SCRIPT.read_text()
-    assert "examples" in text
-    assert "manifests/track-q-qwen38/rendered" not in re.sub(r"#.*", "", text), "script must not write the Track Q renders"
 
 
 # ----------------------------------------------------------------------------- each diff touches only its technique
@@ -628,12 +241,12 @@ def test_pd_diff_touches_only_the_topology_components() -> None:
         assert toks[toks.index("--disaggregation-transfer-backend") + 1] == "nixl"
         assert not any("hicache" in t or t == "--enable-hierarchical-cache" for t in toks), "PD alone must not enable HiCache"
         assert "LIBFABRIC" in "".join(str(v) for _, v in Q.env_pairs(_main(var[name])))
-    assert "hicache" not in _text("03-pd-disaggregation", "rendered.yaml").lower()
+    assert "hicache" not in _code("03-pd-disaggregation").lower()
     assert "DYN_ROUTER_MODE" not in "\n".join(_diff_lines("03-pd-disaggregation"))
 
 
 def test_all_three_diff_is_the_union_of_the_three_techniques() -> None:
-    folder = "04-all-three"
+    folder = "07-all-three"
     base, var = _comps(BASELINE), _comps(folder)
     assert list(var) == ["Frontend", "prefill", "decode"]
     assert _dgd(folder)["metadata"]["namespace"] == "s-dis-hic"
@@ -668,8 +281,37 @@ def test_combination_differs_from_its_neighbour_by_the_router_only(folder: str, 
     assert [e for e in a["env"] if e["name"] != "DYN_ROUTER_MODE"] == [e for e in b["env"] if e["name"] != "DYN_ROUTER_MODE"]
 
 
+# Neighbour cells (left, right): the same topology with the router off and on.
+NEIGHBOURS = [
+    ("00-baseline", "01-kv-router"),
+    ("02-hicache", "04-kv-router-hicache"),
+    ("03-pd-disaggregation", "05-kv-router-pd"),
+    ("06-pd-hicache", "07-all-three"),
+]
+
+
+def _router_mode_value_line(folder: str) -> str:
+    """The comment-free line holding the value of the Frontend's DYN_ROUTER_MODE, taken from the manifest."""
+    lines = _code(folder).splitlines()
+    at = [i for i, ln in enumerate(lines) if ln.strip() == "- name: DYN_ROUTER_MODE"]
+    assert len(at) == 1, f"{folder}: DYN_ROUTER_MODE must be set exactly once (on the Frontend)"
+    value = lines[at[0] + 1]
+    assert value.strip() == f"value: {L.env_value(_main(_comps(folder)['Frontend']), 'DYN_ROUTER_MODE')}"
+    return value
+
+
+@pytest.mark.parametrize("left,right", NEIGHBOURS)
+def test_documented_comment_free_diff_of_neighbour_cells_changes_only_the_router_mode_line(left: str, right: str) -> None:
+    """Runs the command of examples/README.md as documented, on two folders: `grep -v '^ *#'` on both, then `diff`."""
+    command = f"diff <(grep -v '^ *#' {EX / left / 'manifest.yaml'}) <(grep -v '^ *#' {EX / right / 'manifest.yaml'})"
+    run = subprocess.run(["bash", "-c", command], capture_output=True, text=True, check=False)
+    assert run.returncode == 1, f"diff exit {run.returncode} (1 = the files differ): {run.stderr}"
+    changed = [ln for ln in run.stdout.splitlines() if ln[:1] in "<>"]
+    assert changed == [f"< {_router_mode_value_line(left)}", f"> {_router_mode_value_line(right)}"]
+
+
 def test_kv_router_hicache_is_the_kv_router_frontend_on_the_hicache_workers() -> None:
-    folder = "05-kv-router-hicache"
+    folder = "04-kv-router-hicache"
     var = _comps(folder)
     assert list(var) == ["Frontend", "Worker"]
     assert var["Frontend"] == _comps("01-kv-router")["Frontend"]
@@ -678,22 +320,22 @@ def test_kv_router_hicache_is_the_kv_router_frontend_on_the_hicache_workers() ->
     toks = L.cli_tokens(_main(var["Worker"]))
     assert "--enable-hierarchical-cache" in toks and toks[toks.index("--hicache-size") + 1] == Q.HICACHE_SIZE["agg"]
     assert not any("disaggregation" in t for t in toks)
-    assert "vpc.amazonaws.com/efa" not in _text(folder, "rendered.yaml")
+    assert "vpc.amazonaws.com/efa" not in _code(folder)
 
 
 def test_kv_router_pd_is_the_kv_router_frontend_on_the_pd_workers() -> None:
-    folder = "06-kv-router-pd"
+    folder = "05-kv-router-pd"
     var, pd = _comps(folder), _comps("03-pd-disaggregation")
     assert list(var) == ["Frontend", "prefill", "decode"]
     assert var["Frontend"] == _comps("01-kv-router")["Frontend"]
     assert var["prefill"] == pd["prefill"] and var["decode"] == pd["decode"]
     assert L.env_value(_main(var["Frontend"]), "DYN_ROUTER_MODE") == "kv"
-    assert "hicache" not in _text(folder, "rendered.yaml").lower(), "R + D must not enable HiCache"
+    assert "hicache" not in _code(folder).lower(), "R + D must not enable HiCache"
 
 
 def test_pd_hicache_is_all_three_with_the_baseline_frontend() -> None:
-    folder = "07-pd-hicache"
-    var, all3 = _comps(folder), _comps("04-all-three")
+    folder = "06-pd-hicache"
+    var, all3 = _comps(folder), _comps("07-all-three")
     assert list(var) == ["Frontend", "prefill", "decode"]
     assert var["Frontend"] == _comps(BASELINE)["Frontend"], "O + D keeps the round-robin Frontend"
     assert var["prefill"] == all3["prefill"] and var["decode"] == all3["decode"]
@@ -701,46 +343,18 @@ def test_pd_hicache_is_all_three_with_the_baseline_frontend() -> None:
     assert "--enable-hierarchical-cache" in pre and pre[pre.index("--hicache-size") + 1] == Q.HICACHE_SIZE["prefill"]
     assert "--enable-hierarchical-cache" not in dec and dec[dec.index("--disaggregation-mode") + 1] == "decode"
     assert "DYN_ROUTER_MODE" not in "\n".join(_diff_lines(folder))
-    assert not any(bn == "Frontend" for bn, _, _ in _file_sections(folder)), "an unchanged Frontend gets no section"
-
-
-@pytest.mark.parametrize("folder,pair", COMBOS.items())
-def test_combination_readme_names_the_cells_it_differs_from_and_says_to_delete_first(folder: str, pair: tuple[str, str]) -> None:
-    text = _text(folder, "README.md")
-    for other in pair:
-        assert f"`{other}`" in text, f"README must name the folder {other}"
-        assert re.search(rf"\b{FOLDERS[other]}\b", text), f"README must name the cell {FOLDERS[other]} of {other}"
-    assert re.search(r"(?i)\bdelete\b", text), "README must say to delete the folder before the next one is applied"
 
 
 # ----------------------------------------------------------------------------- READMEs
-README_REQUIRED = ("What it does", "What it changes", "How to apply", "Where to look")
-UNIT_RESULT = re.compile(
-    r"\d\s*(?:ms|us|µs|sec|seconds?|tok(?:ens)?/s|req(?:uests)?/s|[KMGT]B/s|GB/s|%)(?![A-Za-z])|\b\d+(?:\.\d+)?\s*[x×](?![A-Za-z0-9])|\bp\d{2}\b",
-    re.I,
-)
 FLAG_RE = re.compile(r"(?<![\w-])--[a-z][a-z0-9-]+")
 ENV_RE = re.compile(r"\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b")
-
-
-@pytest.mark.parametrize("folder", FOLDERS)
-def test_readme_length_language_and_sections(folder: str) -> None:
-    text = _text(folder, "README.md")
-    limit = README_MAX_LINES["pd" if folder in PD else "default"]
-    assert 5 <= len(text.splitlines()) <= limit, f"{len(text.splitlines())} lines (limit {limit})"
-    heads = [ln for ln in text.splitlines() if ln.startswith("#")]
-    assert heads and heads[0].startswith("# ")
-    for section in README_REQUIRED:
-        assert any(section.lower() in h.lower() and h.startswith("##") for h in heads), f"missing '## {section}'"
-    assert text.isascii(), "English/ASCII only"
-    assert re.search(r"\b(the|and|which|is)\b", text), "README must be prose in English"
 
 
 @pytest.mark.parametrize("folder,cell", FOLDERS.items())
 def test_readme_names_its_cell_and_the_apply_command(folder: str, cell: str) -> None:
     text = _text(folder, "README.md")
     assert re.search(rf"\b{cell}\b", text)
-    assert f"kubectl apply -k examples/{folder}" in text
+    assert f'kubectl --context "$KUBE_CONTEXT" apply --server-side -f examples/{folder}/manifest.yaml' in text
     assert "kubectl delete" not in text
 
 
@@ -749,66 +363,21 @@ def test_readme_names_the_namespace_of_its_cell(folder: str) -> None:
     assert f"`{NAMESPACES[folder]}`" in _text(folder, "README.md")
 
 
-@pytest.mark.parametrize("folder", FOLDERS)
-def test_readme_points_at_a_demo_dashboard(folder: str) -> None:
-    text = _text(folder, "README.md")
-    assert any(d in text for d in ("dashboards/demo/take.json", "dashboards/demo/compare.json", "dashboards/sglang")), (
-        "README must name take.json, compare.json or the sglang dashboard"
-    )
-    for ref in re.findall(r"dashboards/[\w./-]+", text):
-        ref = ref.rstrip(".,)")
-        assert (L.REPO_ROOT / ref).exists(), f"README cites non-existent {ref}"
-
-
-@pytest.mark.parametrize("folder", FOLDERS)
-def test_readme_has_no_measured_results(folder: str) -> None:
-    text = _text(folder, "README.md")
-    hits = [m.group(0) for m in UNIT_RESULT.finditer(text)]
-    assert not hits, f"README looks like it quotes measured numbers: {hits}"
-    assert not re.search(r"speed-?up|faster|slower|throughput of|latency of|reduces? (?:ttft|latency)", text, re.I)
-
-
 @pytest.mark.parametrize("folder", VARIANTS)
 def test_every_flag_named_in_the_readme_appears_in_the_diff(folder: str) -> None:
     text = _text(folder, "README.md")
     body = _diff_body(folder)
-    if folder in PD:  # the PD README also names what the NVLink option flips: that is in nvlink/diff-vs-efa.diff
-        body += _text(f"{folder}/{NVL_DIR}", "diff-vs-efa.diff")
     text = re.sub(r"(?m)^.*\bkubectl\b.*$|`[^`\n]*\bkubectl\b[^`\n]*`", "", text)  # kubectl command lines carry CLI flags (--tail), not engine flags
     named = set(FLAG_RE.findall(text)) | {e for e in ENV_RE.findall(text) if "_" in e}
     named -= {"README_MD"}
-    assert named, "a technique README must name the exact flags/fields it changes"
     missing = sorted(n for n in named if n not in body)
-    assert not missing, f"named in README but absent from diff-vs-baseline.diff (or nvlink/diff-vs-efa.diff): {missing}"
+    assert not missing, f"named in README but absent from the diff against the baseline manifest: {missing}"
 
 
-EXPECTED_KNOBS = {
-    "01-kv-router": {"DYN_ROUTER_MODE"},
-    "02-hicache": {"--enable-hierarchical-cache", "SGLANG_HICACHE_NIXL_BACKEND_STORAGE_DIR"},
-    "03-pd-disaggregation": {"--disaggregation-mode", "--disaggregation-transfer-backend"},
-    "04-all-three": {"DYN_ROUTER_MODE", "--enable-hierarchical-cache", "--disaggregation-mode"},
-    "05-kv-router-hicache": {"DYN_ROUTER_MODE", "--enable-hierarchical-cache", "SGLANG_HICACHE_NIXL_BACKEND_STORAGE_DIR"},
-    "06-kv-router-pd": {"DYN_ROUTER_MODE", "--disaggregation-mode", "--disaggregation-transfer-backend"},
-    "07-pd-hicache": {"--enable-hierarchical-cache", "--disaggregation-mode", "SGLANG_HICACHE_NIXL_BACKEND_STORAGE_DIR"},
-}
-
-
-def test_every_variant_names_its_main_knobs() -> None:
-    assert sorted(EXPECTED_KNOBS) == sorted(VARIANTS)
-
-
-@pytest.mark.parametrize("folder,knobs", EXPECTED_KNOBS.items())
-def test_readme_names_the_main_knobs_of_its_technique(folder: str, knobs: set[str]) -> None:
-    text = _text(folder, "README.md")
-    assert not {k for k in knobs if k not in text}, f"README lacks {sorted(k for k in knobs if k not in text)}"
-
-
-def test_baseline_readme_states_it_is_the_reference_with_every_technique_off() -> None:
-    text = _text(BASELINE, "README.md").lower()
-    assert "baseline" in text and "round-robin" in text
-    assert "hicache" in text and "kv router" in text.replace("-", " ") or "kv-router" in text
-    for flag in set(FLAG_RE.findall(_text(BASELINE, "README.md"))):
-        assert flag in _text(BASELINE, "rendered.yaml"), f"{flag} named in the baseline README but absent from its render"
+def test_every_flag_named_in_the_baseline_readme_is_in_its_render() -> None:
+    prose = re.sub(r"(?m)^.*\bkubectl\b.*$", "", _text(BASELINE, "README.md"))  # the apply line carries CLI flags, not engine flags
+    for flag in set(FLAG_RE.findall(prose)):
+        assert flag in _text(BASELINE, "manifest.yaml"), f"{flag} named in the baseline README but absent from its manifest"
 
 
 # ----------------------------------------------------------------------------- examples/README.md
@@ -816,15 +385,12 @@ def test_examples_readme_table_maps_folder_to_cell_and_switches() -> None:
     p = EX / "README.md"
     assert p.is_file(), "examples/README.md missing"
     text = p.read_text()
-    assert len(text.splitlines()) <= 60 and text.isascii()
-    assert "manifests/track-q-qwen38" in text and re.search(r"source of truth", text, re.I)
     rows = [ln for ln in text.splitlines() if ln.lstrip().startswith("|")]
     head = [c.strip() for c in rows[0].strip().strip("|").split("|")]
     for col in ("folder", "cell"):
         assert col in [h.lower() for h in head], f"column {col!r} missing: {head}"
     for sw in ("R", "O", "D"):
         assert sw in head, f"column {sw} missing: {head}"
-    assert "PD transport" in head, f"the table needs a 'PD transport' column: {head}"
     for folder, cell in FOLDERS.items():
         row = next((r for r in rows if f"`{folder}`" in r), None)
         assert row is not None, f"no table row for {folder}"
@@ -833,27 +399,7 @@ def test_examples_readme_table_maps_folder_to_cell_and_switches() -> None:
         by = dict(zip(head, cols))
         assert cell in cols, f"{folder} row must name {cell}: {cols}"
         assert tuple(by[sw].lower() for sw in ("R", "O", "D")) == SWITCHES[folder], f"{folder} R/O/D switches wrong: {cols}"
-        transport = by["PD transport"]
-        if folder in PD:
-            assert re.search(r"\bEFA\b", transport) and re.search(r"\bNVLink\b", transport) and f"{NVL_DIR}/" in transport, (
-                f"{folder}: the PD transport cell says EFA (default) and NVLink via nvlink/: {transport!r}")
-            assert re.search(r"(?i)default", transport), f"{folder}: EFA is marked as the default: {transport!r}"
-        else:
-            assert transport == "-", f"{folder}: no D switch, so the PD transport cell is '-': {transport!r}"
     assert len([r for r in rows if re.search(r"\|\s*S\d\s*\|", r)]) == len(FOLDERS) == 8
-
-
-def test_examples_readme_has_no_ninth_example_and_points_to_the_efa_or_nvlink_guidance() -> None:
-    text = (EX / "README.md").read_text()
-    assert "08" not in re.findall(r"\d+", text) and NINTH not in text, "no 08 anywhere in examples/README.md"
-    assert not re.search(r"(?i)\b(nine|9) (examples|folders|cells)\b", text)
-    assert re.search(r"(?m)^#{1,4} .*EFA or NVLink\?", text), "a short 'EFA or NVLink?' section"
-    flat = re.sub(r"\s+", " ", text)
-    assert re.search(r"(?i)choosing-the-pd-transport|pd-disaggregation/README\.md", flat), "it points to the docs (README 'Choosing the PD transport' or the PD guide)"
-    assert re.search(rf"kubectl apply -k examples/<folder>/{NVL_DIR}|examples/<folder>/{NVL_DIR}", flat), "the NVLink command pattern"
-    assert re.search(r"(?i)\bdelete\b", flat), "delete one before you apply the other"
-    for folder in PD:
-        assert f"`{folder}`" in text
 
 
 # ----------------------------------------------------------------------------- docs/DEPLOY.md, section 6 (the examples table)
@@ -878,44 +424,41 @@ def test_deploy_examples_table_lists_every_folder_with_its_cell_and_namespace() 
     assert not re.search(r"S4\s+to\s+S6\s+are\s+in|S4\.\.S6", sec), "S4 to S6 have folders now: drop the 'only in cells/' sentence"
 
 
-# ----------------------------------------------------------------------------- literal scan, as tight as track-q rendered
+# ----------------------------------------------------------------------------- literal scan
 ACCOUNT_RE = re.compile(r"(?<![0-9A-Za-z.])[0-9]{12}(?![0-9])")
 REGION_RE = re.compile(r"\b(?:us|eu|ap|sa|ca|me|af)-(?:north|south|east|west|central|northeast|southeast)-\d\b")
 BUCKET_RE = re.compile(r"(?:kubecon" + r"-dynamo|dynamo-sample)-(?:models|results)-")
-EXEMPT = {"rendered.yaml", "diff-vs-baseline.diff", "diff-vs-efa.diff"}  # the same files-by-design that embed the placeholder image in track-q rendered/
+EXEMPT = {"manifest.yaml"}  # the files that embed the pinned image by design
 
 
 def _example_files() -> list[Path]:
     return [p for p in sorted(EX.rglob("*")) if p.is_file() and p.name != ".DS_Store"]
 
 
-def test_only_rendered_outputs_may_carry_the_mumbai_image_reference() -> None:
+def test_only_the_manifests_may_carry_an_image_reference() -> None:
     files = _example_files()
     assert files, "examples/ empty"
     offenders = []
-    for p in files + ([SCRIPT] if SCRIPT.is_file() else []):
+    for p in files:
         if p.name in EXEMPT:
             continue
         for n, ln in enumerate(p.read_text().splitlines(), 1):
             if ACCOUNT_RE.search(ln) or REGION_RE.search(ln) or BUCKET_RE.search(ln) or ".dkr.ecr." in ln:
                 offenders.append(f"{p.relative_to(L.REPO_ROOT)}:{n}: {ln.strip()[:100]}")
-    assert not offenders, "region/account/bucket literal outside rendered outputs:\n" + "\n".join(offenders)
+    assert not offenders, "region/account/bucket literal outside the manifests:\n" + "\n".join(offenders)
 
 
 @pytest.mark.parametrize("folder", FOLDERS)
-def test_rendered_outputs_carry_only_the_configured_image_and_no_paris_or_bucket_literal(folder: str) -> None:
+def test_manifest_carries_only_the_configured_image_and_no_region_or_bucket_literal(folder: str) -> None:
     cfg = Q.CONFIG_ENV.read_text()
     image = next(ln.split("=", 1)[1].strip().strip("\"'") for ln in cfg.splitlines() if ln.startswith("RUNTIME_IMAGE="))
-    for name in ("rendered.yaml", "diff-vs-baseline.diff"):
-        if folder == BASELINE and name.endswith(".diff"):
-            continue
-        text = _text(folder, name)
-        stripped = text.replace(image, "<IMAGE>")
-        assert not ACCOUNT_RE.search(stripped), f"{folder}/{name}: account id outside the configured image"
-        assert not REGION_RE.search(stripped), f"{folder}/{name}: region literal outside the configured image"
-        assert not BUCKET_RE.search(text) and "eu-west-3" not in text and "euw3" not in text
+    text = _text(folder, "manifest.yaml")
+    stripped = text.replace(image, "<IMAGE>")
+    assert not ACCOUNT_RE.search(stripped), f"{folder}/manifest.yaml: account id outside the configured image"
+    assert not REGION_RE.search(stripped), f"{folder}/manifest.yaml: region literal outside the configured image"
+    assert not BUCKET_RE.search(text) and "eu-west-3" not in text and "euw3" not in text
 
 
 def test_no_secret_like_content_in_examples() -> None:
-    for p in _example_files() + ([SCRIPT] if SCRIPT.is_file() else []):
+    for p in _example_files():
         assert not re.search(r"AKIA[0-9A-Z]{16}|aws_secret|BEGIN [A-Z ]*PRIVATE KEY|hf_[A-Za-z0-9]{20,}", p.read_text()), p

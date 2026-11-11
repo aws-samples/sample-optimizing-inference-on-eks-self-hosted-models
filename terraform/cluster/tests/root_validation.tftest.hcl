@@ -1,7 +1,7 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
 #
-# RED tests: validations of the ROOT module variables (terraform/cluster/variables.tf). Providers are mocked
+# Tests: validations of the ROOT module variables (terraform/cluster/variables.tf). Providers are mocked
 # (mock_provider) so nothing touches AWS or a cluster; each run breaks exactly ONE input of an otherwise valid
 # configuration and expects the failure on that variable. Only variable validations are exercised here: the
 # GPU logic is tested on the pure module (gpu_pools_*.tftest.hcl) and the wiring is asserted statically by
@@ -238,15 +238,7 @@ run "aws_region_format_rejected" {
   expect_failures = [var.aws_region]
 }
 
-run "workload_values_must_be_positive" {
-  command = plan
-  variables {
-    workload_rate = 0
-  }
-  expect_failures = [var.workload_rate]
-}
-
-# var.tags reaches the KMS key and the IAM roles through default_tags: KMS and IAM reject any character outside
+# var.tags reaches the IAM roles through default_tags: IAM rejects any character outside
 # letters, digits, spaces and _ . : / = + - @ at apply, so the plan refuses it (key and value). The safe complement
 # plans in terraform/bootstrap/tests/tags_validation.tftest.hcl, which uses the same condition.
 run "tag_value_with_a_star_rejected" {

@@ -24,22 +24,19 @@ What is checked
 * A ``not verified`` row claims no licence anywhere in the row.  The ``not verified`` rows are counted and reported
   (printed and raised as a warning), never failed.
 * Coverage of the tree: every dashboard that dashboards/README.md does not mark as new, every tracked file under
-  dashboards/ outside demo/ (README.md aside), the baked traces and every tracked file with a non-Amazon
+  dashboards/ outside demo/ (README.md aside) and every tracked file with a non-Amazon
   SPDX file-copyright line or a non-MIT-0 SPDX licence id is a SHIPPED row.  NOTICE lists exactly the files of the
   Apache-2.0 SHIPPED rows.
 * Coverage of the pins: every provider of the Terraform lock files, every registry module, every Helm chart of
-  terraform/cluster (version: the variable default), every package of tools/demo_bench/uv.lock, of
-  tools/stage_model/requirements.txt, of tests/requirements-test.txt (the test environment, markers dropped) and of the
-  bench image Dockerfile (exact pins, the uv override included), the build backend of tools/demo_bench, the
-  kubectl, AWS CLI and base image pins of the Dockerfile and the runtime image of versions.env are USED rows with that
-  version, whose ``In this repository`` cell names the file that pins it.
+  terraform/cluster (version: the variable default), every package of tools/stage_model/requirements-cluster.txt and of
+  requirements-test.txt (the test environment, markers dropped) and the runtime image of versions.env are USED
+  rows with that version, whose ``In this repository`` cell names the file that pins it.
 
 Allowlist (documented, nothing else is exempt)
 ==============================================
 * ``DEPENDENCY_ONLY``: permissive licences of pinned Python dependencies that are not on the base list
-  (typing-extensions and defusedxml: PSF-2.0; pillow: MIT-CMU; the bundled code of numpy: 0BSD, Zlib, CC0-1.0;
-  matplotlib's own licence, which has no SPDX License List id: LicenseRef-Matplotlib).  Accepted in the USED part only;
-  the reviewer confirms them against the approved-licence list.
+  (typing-extensions and defusedxml: PSF-2.0).  Accepted in the USED part only; check them against the
+  approved-licence list.
 * ``AGPL-3.0-only``: the Grafana server that the kube-prometheus-stack chart deploys from the upstream image.
 """
 
@@ -47,7 +44,6 @@ from __future__ import annotations
 
 import fnmatch
 import re
-import tomllib
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
@@ -71,7 +67,7 @@ NOT_VERIFIED = "not verified"
 
 APPROVED = frozenset({"MIT", "MIT-0", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "MPL-2.0", "CC-BY-4.0"})
 AGPL = "AGPL-3.0-only"
-DEPENDENCY_ONLY = frozenset({"PSF-2.0", "MIT-CMU", "0BSD", "Zlib", "CC0-1.0", "LicenseRef-Matplotlib"})
+DEPENDENCY_ONLY = frozenset({"PSF-2.0"})
 KNOWN_IDS = APPROVED | DEPENDENCY_ONLY | {AGPL}
 LICENCE_CLAIM = re.compile(
     r"(?<![\w-])(?:" + "|".join(re.escape(i) for i in sorted(KNOWN_IDS, key=len, reverse=True)) + r")(?![\w-])"
@@ -343,37 +339,10 @@ def test_every_third_party_dashboard_file_is_covered() -> None:
     assert not missing, f"dashboards outside dashboards/demo (original) need a SHIPPED row: {missing}"
 
 
-def test_baked_traces_are_covered() -> None:
-    traces = sorted(t for t in _tracked() if fnmatch.fnmatch(t, "tools/bench-image/traces/*.jsonl"))
-    assert traces, "no baked trace found"
-    missing = [t for t in traces if t not in _shipped_paths()]
-    assert not missing, f"baked traces without a SHIPPED row: {missing}"
-
-
-W2_FIXTURE = "tools/demo_bench/tests/fixtures/w2_qwen38/window.jsonl"
-W2_PROVENANCE = "tools/demo_bench/tests/README.md"
-
-
-def test_w2_test_trace_row_points_at_its_recorded_reproduction() -> None:
-    """The W2 test trace takes its output lengths from the upstream file of the baked agentic trace: its row names that
-    commit, links the recorded command and seed (checked and replayed by
-    tools/demo_bench/tests/unit/test_w2_fixture_provenance.py) and carries the licence of that source; the README
-    summary no longer calls the derivation inferred."""
-    rows = [r for r in _rows("shipped") if W2_FIXTURE in r.paths]
-    assert len(rows) == 1, f"one SHIPPED row for {W2_FIXTURE}"
-    row = rows[0]
-    assert W2_PROVENANCE in row.text, f"{row.label()}: link the recorded command and seed ({W2_PROVENANCE})"
-    for stale in ("not recorded", "inferred", "not documented"):
-        assert stale not in row.text, f"{row.label()}: stale wording {stale!r}, the command and seed are recorded"
-    assert "66a95d5aa3b5d238fd94b6f8243c4e479cb7242c" in row.cells["Upstream"], row.label()
-    assert row.licence == "Apache-2.0", f"{row.label()}: derived from the Apache-2.0 upstream trace"
-    assert "inferred" not in (ROOT / "README.md").read_text(encoding="utf-8"), "README.md: the derivation is recorded"
-
-
 def test_files_with_third_party_spdx_headers_are_covered() -> None:
     flagged = []
     for rel in sorted(_tracked()):
-        if rel.startswith(sanitize_scan.ALLOWLIST_PREFIX) or rel == THIS:
+        if not sanitize_scan.is_public(rel) or rel == THIS:
             continue
         text = sanitize_scan.read_text(rel) or ""
         ids = {m.group(1) for m in SPDX_ID_RE.finditer(text)} - {"MIT-0"}
@@ -462,48 +431,19 @@ def test_helm_charts_are_listed() -> None:
     _assert_listed(pins, "Helm charts")
 
 
-def test_python_packages_of_the_demo_bench_lock_are_listed() -> None:
-    lock = "tools/demo_bench/uv.lock"
-    data = tomllib.loads((ROOT / lock).read_text(encoding="utf-8"))
-    pins = [(p["name"], p["version"], lock) for p in data["package"] if "registry" in p.get("source", {})]
-    _assert_listed(pins, f"packages of {lock}")
-
-
-def test_build_backend_of_demo_bench_is_listed() -> None:
-    src = "tools/demo_bench/pyproject.toml"
-    reqs = tomllib.loads((ROOT / src).read_text(encoding="utf-8"))["build-system"]["requires"]
-    _assert_listed([(*r.split("=="), src) for r in reqs], f"build requirements of {src}")
-
-
 def test_stage_model_requirements_are_listed() -> None:
-    src = "tools/stage_model/requirements.txt"
+    src = "tools/stage_model/requirements-cluster.txt"
     pins = [(*ln.strip().split("=="), src) for ln in (ROOT / src).read_text(encoding="utf-8").splitlines()
             if ln.strip() and not ln.startswith("#")]
     _assert_listed(pins, f"pins of {src}")
 
 
 def test_test_requirements_are_listed() -> None:
-    src = "tests/requirements-test.txt"
+    src = "requirements-test.txt"
     assert (ROOT / src).is_file(), f"{src} missing"
     pins = [(*ln.split(";")[0].strip().split("=="), src) for ln in (ROOT / src).read_text(encoding="utf-8").splitlines()
             if ln.strip() and not ln.startswith("#")]
     _assert_listed(pins, f"pins of {src}")
-
-
-def test_bench_image_pins_are_listed() -> None:
-    src = "tools/bench-image/Dockerfile"
-    text = (ROOT / src).read_text(encoding="utf-8")
-    pins = [(m.group(1), m.group(2), src) for m in re.finditer(r"""["']([A-Za-z0-9][\w.-]*)==([\w.]+)["']""", text)]
-    pins += [(m.group(1), m.group(2), src) for m in re.finditer(r"""["']([A-Za-z0-9][\w.-]*)>=([\w.]+)["']""", text)]
-    for arg, name in (("KUBECTL_VERSION", "kubectl"), ("AWSCLI_VERSION", "AWS CLI")):
-        m = re.search(rf"^ARG {arg}=(\S+)$", text, re.MULTILINE)
-        assert m, f"{src}: ARG {arg}"
-        pins.append((name, m.group(1), src))
-    _assert_listed(pins, f"pins of {src}")
-    base = re.search(r"^ARG BASE_IMAGE=([^@\s]+)@sha256:[0-9a-f]{64}$", text, re.MULTILINE)
-    assert base, f"{src}: BASE_IMAGE pinned by digest"
-    assert any(base.group(1) in r.cells.get("Version", "") and src in r.paths for r in _rows("used")), (
-        f"the base image {base.group(1)} needs a USED row naming {src}")
 
 
 def test_runtime_image_of_versions_env_is_listed() -> None:

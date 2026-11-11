@@ -1,6 +1,6 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
-"""One platform config source: account, region, buckets, ECR registry (publish-critical guard).
+"""One platform config source: account, region, buckets (publish-critical guard).
 
 Why: ``manifests/`` and ``scripts/`` must not hardcode any deployment value (a region, ``-use2``/``-euw3``/``-usw2``
 short codes, the account id, an ECR host, a bucket name).  The public sample is re-pointed at another region by editing
@@ -10,15 +10,9 @@ Contract
 ========
 * ``manifests/config/platform.env`` is the single source: ``KEY=VALUE`` lines (``#`` comments), uppercase keys,
   no quotes/spaces/``$`` (so ``terraform output -raw`` can emit it).  Required keys: ``AWS_ACCOUNT_ID``,
-  ``AWS_REGION``, ``MODEL_BUCKET``, ``RESULTS_BUCKET``, ``ECR_REGISTRY`` (``<account>.dkr.ecr.<region>.amazonaws.com``,
-  consistent with the first two).  Extra keys are allowed (e.g. a full ``*_REPO``) when consistent with the registry.
-* The values reach the manifests through plain ``kubectl kustomize`` (no pre-render step), and reach the scripts
-  because ``scripts/lib/common.sh`` sources the same file.  Recommended kustomize-native mechanism (prototyped on
-  kubectl's kustomize v5.7.1): ``manifests/config/kustomization.yaml`` with a ``configMapGenerator`` over
-  ``platform.env`` marked ``config.kubernetes.io/local-config: "true"`` (it feeds ``replacements`` but is dropped from
-  the rendered output, so nothing extra is applied) and ``replacements`` into env values, ``s3://`` URIs and image
-  strings (``options.delimiter``).  ``images:`` entries cannot take replacements, so image refs use replacements.
-  Tests are black-box on the rendered output; the mechanism is the developer's, the invariants are not.
+  ``AWS_REGION``, ``MODEL_BUCKET``, ``RESULTS_BUCKET``.  Extra keys are allowed.
+* The values reach the scripts because ``scripts/lib/common.sh`` reads the same file; ``scripts/prefetch.sh``
+  sets them on the prefetch Job with ``kubectl set env --local`` (the Job itself carries placeholders).
 * No ``eu-west-3`` / ``euw3`` / 12-digit account id / ECR host / bucket literal / any region literal anywhere in
   ``manifests/`` or ``scripts/`` except ``manifests/config/platform.env``.  The exception list is EMPTY on purpose:
   comments citing history are not allowed either (``vpc.amazonaws.com/efa`` is a resource name and matches none of
@@ -33,16 +27,15 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
-from typing import Any
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import lib_manifests as L
+import lib_q38 as Q
 import lib_scripts as S
-import lib_trackq as Q
 
-REQUIRED = ("AWS_ACCOUNT_ID", "AWS_REGION", "MODEL_BUCKET", "RESULTS_BUCKET", "ECR_REGISTRY")
+REQUIRED = ("AWS_ACCOUNT_ID", "AWS_REGION", "MODEL_BUCKET", "RESULTS_BUCKET")
 # The placeholder deployment of the tracked platform.env.example (account 123456789012, us-east-2).
 EXPECTED = Q.PLACEHOLDER
 
@@ -73,7 +66,7 @@ def _targets() -> list[str]:
     return out
 
 
-# Every kustomize entry point under manifests/ is a target, Track Q included: the config is the Track Q config.
+# Every kustomize entry point under manifests/ is a target.
 TARGETS = _targets()
 
 
@@ -86,9 +79,6 @@ def _tree_files() -> list[Path]:
     for root in (L.MANIFESTS, S.SCRIPTS_DIR):
         for p in sorted(root.rglob("*")):
             if p.is_file() and p.resolve() not in {config, *examples} and p.name != ".DS_Store" and "__pycache__" not in p.parts:
-                # the committed Track Q renders embed the placeholder image reference by design (drift-tested against the config in test_412)
-                if "track-q-qwen38" in p.parts and "rendered" in p.parts:
-                    continue
                 files.append(p)
     return files
 
@@ -98,17 +88,6 @@ def _read(p: Path) -> str | None:
         return p.read_text()
     except UnicodeDecodeError:
         return None
-
-
-def _containers(docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    out = []
-    for _, ps in L.iter_pod_specs(docs):
-        out += list(ps.get("containers") or []) + list(ps.get("initContainers") or [])
-    return out
-
-
-def _env_values(docs: list[dict[str, Any]], name: str) -> list[str]:
-    return [str(e.get("value")) for c in _containers(docs) for e in c.get("env", []) or [] if e.get("name") == name and "value" in e]
 
 
 # ----------------------------------------------------------------------------- the config source
@@ -132,15 +111,9 @@ def test_config_values_are_well_formed_and_consistent() -> None:
     cfg = _cfg()
     assert re.fullmatch(r"[0-9]{12}", cfg.get("AWS_ACCOUNT_ID", "")), cfg.get("AWS_ACCOUNT_ID")
     assert REGION_RE.fullmatch(cfg.get("AWS_REGION", "")), cfg.get("AWS_REGION")
-    assert cfg.get("ECR_REGISTRY") == f"{cfg.get('AWS_ACCOUNT_ID')}.dkr.ecr.{cfg.get('AWS_REGION')}.amazonaws.com"
     for key in ("MODEL_BUCKET", "RESULTS_BUCKET"):
         assert re.fullmatch(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]", cfg.get(key, "")), (key, cfg.get(key))
     assert cfg.get("MODEL_BUCKET") != cfg.get("RESULTS_BUCKET")
-    for key, value in cfg.items():
-        if key == "SGLANG_RUNTIME_REPO" and value == "":
-            continue  # the optional runtime mirror repository is not created (create_runtime_mirror_repository)
-        if key.endswith("_REPO"):
-            assert value.startswith(cfg["ECR_REGISTRY"] + "/"), f"{key} must live on ECR_REGISTRY"
 
 
 def test_config_holds_the_placeholder_deployment() -> None:
@@ -150,7 +123,7 @@ def test_config_holds_the_placeholder_deployment() -> None:
 
 # ----------------------------------------------------------------------------- nothing outside the config
 def test_tree_to_scan_exists() -> None:
-    assert [p for p in _tree_files() if p.name == "11-prefetch.sh"] and [p for p in _tree_files() if p.suffix == ".yaml"]
+    assert [p for p in _tree_files() if p.name == "prefetch.sh"] and [p for p in _tree_files() if p.suffix == ".yaml"]
 
 
 @pytest.mark.parametrize(
@@ -179,9 +152,7 @@ def test_no_region_account_or_bucket_literal_outside_the_config(label: str, patt
 
 # ----------------------------------------------------------------------------- every rendered target
 def test_render_targets_discovered() -> None:
-    assert len(TARGETS) >= 25, TARGETS
-    for must in ("bench", "node-ops", "stage-mocker", "track-q-qwen38/cells/S0", "track-q-qwen38/overlays/t-agg", "track-q-qwen38/frontends/rr"):
-        assert must in TARGETS, must
+    assert "node-ops" in TARGETS, TARGETS
 
 
 
@@ -194,32 +165,8 @@ def test_render_carries_only_config_values(rel: str) -> None:
     allowed_short = set(SHORT_RE.findall(" ".join(cfg.values())))
     assert set(SHORT_RE.findall(text)) <= allowed_short, set(SHORT_RE.findall(text))
     assert set(ACCOUNT_RE.findall(text)) <= {cfg.get("AWS_ACCOUNT_ID")}, set(ACCOUNT_RE.findall(text))
-    assert set(ECR_HOST_RE.findall(text)) <= {cfg.get("ECR_REGISTRY")}, set(ECR_HOST_RE.findall(text))
+    assert not ECR_HOST_RE.findall(text), set(ECR_HOST_RE.findall(text))
     assert set(S3_RE.findall(text)) <= {cfg.get("MODEL_BUCKET"), cfg.get("RESULTS_BUCKET")}, set(S3_RE.findall(text))
-
-
-@pytest.mark.parametrize("rel", TARGETS)
-def test_render_emits_no_config_object(rel: str) -> None:
-    """The config feeds `replacements` only; a generated ConfigMap must not leak into what `kubectl apply` sends."""
-    for d in L.render(rel):
-        assert not (d.get("kind") == "ConfigMap" and "platform" in d["metadata"]["name"]), d["metadata"]["name"]
-
-
-# ----------------------------------------------------------------------------- positive: where the values land
-@pytest.mark.parametrize("rel", ["bench"])
-def test_bench_images_use_the_configured_registry(rel: str) -> None:
-    images = [c["image"] for d in L.render(rel) for _, ps in L.iter_pod_specs([d]) for c in ps.get("containers", [])]
-    assert images, rel
-    for image in images:
-        assert image.startswith(L.cfg("BENCH_REPO")), image
-        assert ":latest" not in image and (re.search(r"@sha256:[0-9a-f]{64}$", image) or re.search(r":[A-Za-z0-9._-]+$", image)), image
-
-
-def test_prefetch_job_reads_the_configured_model_bucket_and_region() -> None:
-    docs = L.render("node-ops")
-    uris = _env_values(docs, "MODEL_S3_URI")
-    assert uris and all(u.startswith(f"s3://{L.cfg('MODEL_BUCKET')}/") for u in uris), uris
-    assert set(_env_values(docs, "AWS_REGION")) == {L.cfg("AWS_REGION")}
 
 
 # ----------------------------------------------------------------------------- scripts
@@ -237,7 +184,7 @@ def test_common_sh_reads_the_same_config_file() -> None:
 
 
 def _prefetch(tmp: Path, *args: str, env: dict[str, str] | None = None) -> list[str]:
-    res = _sandbox(tmp).run("11-prefetch.sh", *args, env={**KUBE_ENV, **(env or {})})
+    res = _sandbox(tmp).run("prefetch.sh", *args, env={**KUBE_ENV, **(env or {})})
     assert res.rc == 0, res.stdout + res.stderr
     calls = [c for c in res.kubectl_calls() if "set" in c["argv"] and "env" in c["argv"]]
     assert calls, "no `kubectl set env` call carrying the Job parameters"

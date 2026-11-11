@@ -1,6 +1,6 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
-"""The tracked platform.env.example is a complete, renderable placeholder config (M1: clean clone).
+"""The tracked platform.env.example is a complete, renderable placeholder config (for a clean clone).
 
 A fresh ``git clone`` has no ``manifests/config/platform.env`` (generated, gitignored).  The suites materialize it
 from ``platform.env.example`` (``tests/platform_env.py``), so the example must hold concrete placeholder values (no
@@ -57,9 +57,6 @@ def test_canonical_config_uses_the_placeholder_account_everywhere() -> None:
     account = S.PLACEHOLDER_ACCOUNT
     cfg = dict(_pairs(EXPECTED.read_text()))
     assert cfg["AWS_ACCOUNT_ID"] == account
-    for key in ("ECR_REGISTRY", "BENCH_REPO"):
-        assert cfg[key].startswith(f"{account}.dkr.ecr."), key
-    assert cfg["SGLANG_RUNTIME_REPO"] == "", "create_runtime_mirror_repository is off by default: the key is empty"
     for key in ("MODEL_BUCKET", "RESULTS_BUCKET", "MODEL_S3_URI"):
         assert f"-{account}-" in cfg[key], key
     assert re.fullmatch(r".+@sha256:[0-9a-f]{64}", cfg["RUNTIME_IMAGE"])
@@ -68,8 +65,8 @@ def test_canonical_config_uses_the_placeholder_account_everywhere() -> None:
 def test_example_keeps_the_keys_scripts_and_renders_read() -> None:
     keys = {k for k, _ in _pairs(_example().read_text())}
     needed = {
-        "AWS_ACCOUNT_ID", "AWS_REGION", "BENCH_REPO", "CLUSTER_NAME", "ECR_REGISTRY", "MODEL_BUCKET", "MODEL_S3_PREFIX",
-        "MODEL_S3_URI", "RUNTIME_IMAGE", "MODEL_ID", "MODEL_REVISION", "RESULTS_BUCKET", "SGLANG_RUNTIME_REPO",
+        "AWS_ACCOUNT_ID", "AWS_REGION", "CLUSTER_NAME", "MODEL_BUCKET", "MODEL_S3_PREFIX",
+        "MODEL_S3_URI", "RUNTIME_IMAGE", "MODEL_ID", "MODEL_REVISION", "RESULTS_BUCKET",
     }
     assert needed <= keys, sorted(needed - keys)
 

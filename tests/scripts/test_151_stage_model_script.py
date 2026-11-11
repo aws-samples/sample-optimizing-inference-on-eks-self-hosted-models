@@ -1,15 +1,14 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
-"""RED tests: ``scripts/10-stage-model.sh [--dry-run]``, the Hugging Face -> S3 model staging Job.
+"""Tests: ``scripts/stage-model.sh [--dry-run]``, the Hugging Face -> S3 model staging Job.
 
 Contract (model staging job; names are fixed so the Terraform, the script and the tests agree):
 
-* Inputs: process env wins over the env files. ``SAMPLE_ENV`` (default ``config/sample.env``) provides MODEL_ID,
-  MODEL_REVISION, MODEL_S3_PREFIX and MODEL_S3_URI; ``PLATFORM_ENV`` (the file ``common.sh`` already reads) provides
-  MODEL_BUCKET and AWS_REGION. The optional HF_TOKEN comes from the process environment only (test_153). MODEL_S3_URI defaults to ``s3://<bucket>/<MODEL_ID>/<MODEL_REVISION>``.
+* Inputs: process env wins over the env file. ``PLATFORM_ENV`` (the one generated file, which ``common.sh`` already
+  reads) provides MODEL_ID, MODEL_REVISION, MODEL_S3_PREFIX, MODEL_S3_URI, MODEL_BUCKET and AWS_REGION. The optional HF_TOKEN comes from the process environment only (test_153). MODEL_S3_URI defaults to ``s3://<bucket>/<MODEL_ID>/<MODEL_REVISION>``.
   ``STAGE_IMAGE`` is the Job image (``repo:tag@sha256:<64 hex>``); the script's default is a placeholder digest it refuses.
 * Objects, all in ``node-ops``: ConfigMap ``model-stage-code`` (``kubectl create configmap --from-file --dry-run=client``:
-  ``stage_model.py`` and ``requirements.txt`` of ``tools/stage_model``), Job ``model-stage`` (ServiceAccount ``model-stager``,
+  ``stage_model.py`` and ``requirements-cluster.txt`` of ``tools/stage_model``, the latter under the key ``requirements.txt``), Job ``model-stage`` (ServiceAccount ``model-stager``,
   Terraform-owned), and, only when HF_TOKEN is set, Secret ``hf-token`` (key HF_TOKEN) that the Job reads with an OPTIONAL
   ``secretKeyRef``. The Secret is created before the Job, reaches kubectl through stdin or a file (never argv) and is deleted
   by a trap on EXIT / INT / TERM once the Job ends or the script dies. The script waits for the Job and exits with its result.
@@ -74,7 +73,7 @@ def only_the_stale_secret_cleanup(res: Run) -> bool:
 
 # ----------------------------------------------------------------------------------- script hygiene
 def test_script_exists_executable_strict_and_parses() -> None:
-    assert SCRIPT.is_file(), "scripts/10-stage-model.sh must exist"
+    assert SCRIPT.is_file(), "scripts/stage-model.sh must exist"
     assert os.access(SCRIPT, os.X_OK)
     text = SCRIPT.read_text()
     assert text.splitlines()[0] in ("#!/usr/bin/env bash", "#!/bin/bash")
@@ -120,7 +119,7 @@ def test_configmap_carries_the_tool_files_verbatim(box: Box) -> None:
     assert cm["metadata"]["namespace"] == NS
     assert set(cm["data"]) == {"stage_model.py", "requirements.txt"}
     assert cm["data"]["stage_model.py"] == (TOOL / "stage_model.py").read_text()
-    assert cm["data"]["requirements.txt"] == (TOOL / "requirements.txt").read_text()
+    assert cm["data"]["requirements.txt"] == (TOOL / "requirements-cluster.txt").read_text()
 
 
 def test_job_identity_and_environment(box: Box) -> None:
@@ -188,7 +187,7 @@ def _gib(q: str) -> float:
 
 
 def test_job_requests_fit_next_to_monitoring_on_the_one_cpu_demo_node(box: Box) -> None:
-    """Live test 2 (D3): 2 vCPU / 4Gi did not fit next to monitoring on the single cpu-demo node, so Karpenter added a
+    """Found on a real cluster: 2 vCPU / 4Gi did not fit next to monitoring on the single cpu-demo node, so Karpenter added a
     second node that the pool never consolidates. One file at a time needs about 1 vCPU and 2Gi."""
     res = container(job_of(box.run("--dry-run").stdout_docs()))["resources"]
     assert _cpu_cores(str(res["requests"]["cpu"])) <= 1
@@ -222,7 +221,7 @@ def test_dry_run_equals_what_a_real_run_applies(box: Box) -> None:
 
 
 def test_s3_uri_is_derived_from_the_bucket_when_the_env_has_no_path(box: Box) -> None:
-    box.write_sample(MODEL_S3_URI=None, MODEL_S3_PREFIX=None)
+    box.write_platform(MODEL_S3_URI=None, MODEL_S3_PREFIX=None)
     env = env_of(job_of(box.run("--dry-run").stdout_docs()))
     assert env["MODEL_S3_URI"]["value"] == f"s3://{BUCKET}/{MODEL}/{REVISION}"
 
@@ -231,6 +230,28 @@ def test_process_env_wins_over_the_env_file(box: Box) -> None:
     other = "b" * 40
     env = env_of(job_of(box.run("--dry-run", MODEL_REVISION=other, MODEL_S3_URI=f"s3://{BUCKET}/x/{other}").stdout_docs()))
     assert env["MODEL_REVISION"]["value"] == other and env["MODEL_S3_URI"]["value"] == f"s3://{BUCKET}/x/{other}"
+
+
+def test_the_model_comes_from_the_platform_env_and_no_sample_env_is_read(box: Box) -> None:
+    """A file named by the retired SAMPLE_ENV variable, with another model, is not read."""
+    decoy = box.root / "decoy.env"
+    decoy.write_text(f"MODEL_ID=decoy/other-model\nMODEL_REVISION={'c' * 40}\nMODEL_S3_URI=s3://{BUCKET}/decoy/{'c' * 40}\n")
+    env = env_of(job_of(box.run("--dry-run", SAMPLE_ENV=str(decoy)).stdout_docs()))
+    assert env["MODEL_ID"]["value"] == MODEL and env["MODEL_REVISION"]["value"] == REVISION
+    assert env["MODEL_S3_URI"]["value"] == URI
+
+
+def test_a_model_override_alone_does_not_reuse_the_files_path(box: Box) -> None:
+    other = "b" * 40
+    env = env_of(job_of(box.run("--dry-run", MODEL_REVISION=other).stdout_docs()))
+    assert env["MODEL_S3_URI"]["value"] == f"s3://{BUCKET}/{MODEL}/{other}", "the path names the overridden revision"
+
+
+def test_a_target_other_than_the_generated_one_warns_and_names_the_platform_env(box: Box) -> None:
+    res = box.run("--dry-run", MODEL_S3_URI=f"s3://{BUCKET}/elsewhere")
+    assert res.rc == 0, res.stderr
+    lines = [ln for ln in res.stderr.splitlines() if "differs" in ln]
+    assert len(lines) == 1 and str(box.platform_env) in lines[0], res.stderr
 
 
 # ----------------------------------------------------------------------------------- preflight refusals
@@ -275,7 +296,7 @@ def test_branch_names_and_non_sha_revisions_are_refused(box: Box, mode: list[str
 @pytest.mark.parametrize(("name", "value"), [("MODEL_ID", None), ("MODEL_ID", "no-slash"), ("MODEL_ID", "a/b/c"), ("MODEL_ID", "a b/c"), ("MODEL_S3_URI", "https://x/y"), ("MODEL_S3_URI", "s3://bucket-only")])
 def test_invalid_model_inputs_are_refused(box: Box, name: str, value: str | None) -> None:
     if value is None:  # absent from the env file and from the environment
-        box.write_sample(**{name: None})
+        box.write_platform(**{name: None})
         res = box.run("--dry-run")
     else:
         res = box.run("--dry-run", **{name: value})
@@ -353,7 +374,7 @@ def test_failed_job_fails_the_script_and_the_uri_is_not_announced_as_done(box: B
 
 @pytest.mark.parametrize("pending", [0, 1], ids=["failed-at-once", "failed-after-a-poll"])
 def test_a_failed_job_ends_the_script_within_seconds(box: Box, pending: int) -> None:
-    """Live test 2 (D1): a wait that woke on Complete only noticed a Failed Job ~50 s late. The fake's ``kubectl wait``
+    """Found on a real cluster: a wait that woke on Complete only noticed a Failed Job ~50 s late. The fake's ``kubectl wait``
     blocks until its ``--timeout`` on a condition the Job never reaches, as the real one does."""
     start = time.monotonic()
     res = box.run(FAKE_JOB_RESULT="failed", FAKE_JOB_PENDING_GETS=str(pending), timeout=45)
@@ -432,7 +453,7 @@ def test_token_leaves_no_temporary_file_behind(box: Box) -> None:
 
 
 def test_process_env_token_beats_the_file_token(box: Box) -> None:
-    box.sample_env.write_text(box.sample_env.read_text() + "HF_TOKEN=hf_FILE_TOKEN_VALUE\n")
+    box.platform_env.write_text(box.platform_env.read_text() + "HF_TOKEN=hf_FILE_TOKEN_VALUE\n")
     res = box.run(HF_TOKEN=TOKEN)
     payload = res.calls[res.secret_creates()[0]]["payload"]
     assert TOKEN in payload and "hf_FILE_TOKEN_VALUE" not in payload

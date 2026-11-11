@@ -1,12 +1,12 @@
 # SGLang engine metric names (base names; _bucket/_sum/_count suffixes are implied).
 # Provenance:
-#   [spec] the metrics of the planned recorded panels and of HiCache (SGLang 0.5.18).
+#   [panels] the metrics of the panels of dashboards/demo/matrix.json and of HiCache (SGLang 0.5.18).
 #   [dyn]  names exported by the Dynamo dev sglang.json dashboard, authored against the SGLang engine
-#          (dynamo/dev/observability/grafana_dashboards/sglang.json); confirmed on B200 (T-OBS-1).
+#          (dynamo/dev/observability/grafana_dashboards/sglang.json); confirmed on a B200 node.
 #   [src]  declared in sgl-project/sglang v0.5.18 python/sglang/srt/observability/metrics_collector.py (hicache_backup_bytes_total :2094, hicache_backup_tokens_total :2114, load_back_bytes_total :2104 in the sglang-runtime 1.5.1 image).
-# sglang:prefetch_bandwidth stays known (spec 11; declared at :1907) but dashboards must NOT use it: it is only observed by storage
-# backends that report StorageMetrics and had no series on the nixl backend in the real-GPU Track C run (test_trackc_fixes.py).
-# Deliberately ABSENT: sglang:cache_hit_rate (decision: never use; derive from cached_tokens_total/prompt_tokens_total).
+# sglang:prefetch_bandwidth stays known (declared at :1907) but dashboards must NOT use it: it is only observed by storage
+# backends that report StorageMetrics and had no series on the nixl backend in a run on a GPU node (test_dashboard_fixes.py).
+# Deliberately ABSENT: sglang:cache_hit_rate (never used; derive from cached_tokens_total/prompt_tokens_total).
 sglang:cached_tokens_total
 sglang:prompt_tokens_total
 sglang:num_running_reqs

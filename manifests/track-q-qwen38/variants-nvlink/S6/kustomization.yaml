@@ -1,7 +1,0 @@
-# Cell S6 with the same-node KV path over NVLink (design reference, not run on p6-b200): the published cell plus components/pd-nvlink.
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
-resources:
-  - ../../cells/S6
-components:
-  - ../../components/pd-nvlink
