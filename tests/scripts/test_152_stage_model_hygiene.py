@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT-0
 """Tests: hygiene of every file the model staging Job adds (no mutable image tag, no credential-looking string).
 
-Scope: ``scripts/10-stage-model.sh``, ``tools/stage_model/`` (code, requirements, tests), the model-stager Terraform test, the
+Scope: ``scripts/stage-model.sh``, ``tools/stage_model/`` (code, requirements, tests), the model-stager Terraform test, the
 env templates the feature touches, and the new test files themselves. The tokens used by the tests are dummies built at run
 time from fragments, so no token-shaped literal exists in any file.
 """
@@ -18,13 +18,13 @@ import pytest
 
 REPO = S.REPO_ROOT
 CODE = [
-    REPO / "scripts" / "10-stage-model.sh",
+    REPO / "scripts" / "stage-model.sh",
     REPO / "tools" / "stage_model" / "stage_model.py",
-    REPO / "tools" / "stage_model" / "requirements.txt",
+    REPO / "tools" / "stage_model" / "requirements-cluster.txt",
 ]
 TOUCHED = [
     REPO / "scripts" / "gen_env.py",
-    REPO / "scripts" / "11-prefetch.sh",
+    REPO / "scripts" / "prefetch.sh",
     REPO / "manifests" / "config" / "platform.env.example",
     REPO / "terraform" / "cluster" / "iam-model-access.tf",
     REPO / "terraform" / "cluster" / "variables.tf",
@@ -83,16 +83,16 @@ def test_no_mutable_image_tag(path: Path) -> None:
 
 
 def test_every_image_reference_in_the_script_is_digest_pinned_or_a_placeholder() -> None:
-    script = REPO / "scripts" / "10-stage-model.sh"
+    script = REPO / "scripts" / "stage-model.sh"
     if not script.is_file():
-        pytest.fail("scripts/10-stage-model.sh must exist")
+        pytest.fail("scripts/stage-model.sh must exist")
     for n, line in enumerate(script.read_text().splitlines(), 1):
         for ref in re.findall(r"\b[\w./-]+\.(?:amazonaws\.com|io|com|dev)/[\w./-]+:[\w.-]+(?:@sha256:[^\s\"']+)?", line):
-            assert "@sha256:" in ref, f"scripts/10-stage-model.sh:{n}: image reference without a digest: {ref}"
+            assert "@sha256:" in ref, f"scripts/stage-model.sh:{n}: image reference without a digest: {ref}"
 
 
 def test_requirements_are_pinned_without_ranges_urls_or_vcs() -> None:
-    req = REPO / "tools" / "stage_model" / "requirements.txt"
+    req = REPO / "tools" / "stage_model" / "requirements-cluster.txt"
     assert req.is_file()
     for ln in req.read_text().splitlines():
         ln = ln.strip()

@@ -40,7 +40,7 @@ kubectl -n "$NS" cp benchmarks/traces/. trace-server:/t
 kubectl -n "$NS" expose pod trace-server --port=8080
 ```
 
-Delete them with `kubectl -n "$NS" delete pod/trace-server service/trace-server` before the teardown: the pod runs on the `cpu-demo` node, and step 2 of `scripts/90-teardown.sh` deletes a `cpu-demo` NodeClaim only when its node runs DaemonSet pods only (from the script's printed plan; not run with the pod present).
+Delete them with `kubectl -n "$NS" delete pod/trace-server service/trace-server` before the teardown: the pod runs on the `cpu-demo` node, and step 2 of `scripts/teardown.sh` deletes a `cpu-demo` NodeClaim only when its node runs DaemonSet pods only (from the script's printed plan; not run with the pod present).
 
 ## Reset between rates
 

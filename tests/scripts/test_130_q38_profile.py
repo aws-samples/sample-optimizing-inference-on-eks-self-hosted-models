@@ -162,7 +162,7 @@ def test_guard_without_cluster_name_accepts_any_explicit_context(tmp_path: Path)
 
 
 SCRIPT_CASES: dict[str, tuple[str, ...]] = {
-    "11-prefetch.sh": (),
+    "prefetch.sh": (),
 }
 
 

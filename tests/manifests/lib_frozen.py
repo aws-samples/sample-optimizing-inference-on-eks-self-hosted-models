@@ -22,7 +22,7 @@ SKIP = {"__pycache__", ".DS_Store", ".pytest_cache", ".ruff_cache", ".mypy_cache
 
 # directory (relative to the repository root) -> digest
 FROZEN_TREES: dict[str, str] = {
-    "tools/stage_model": "b75bf2e1ac10e667b1a0d5b67f6224ae1606ab15c4a870471af20ee5cf1a4cf6",
+    "tools/stage_model": "f2b1e380dbd26c967e22683f87ad130da839b7d2f86e5347334e18d148eda4ad",
 }
 # example folder -> parsed_digest() of its manifest.yaml (moved on purpose only by a change that means to edit that manifest;
 # comments and layout do not move it)

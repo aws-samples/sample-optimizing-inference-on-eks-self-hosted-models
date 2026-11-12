@@ -3,13 +3,13 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
 #
-# 10-stage-model.sh [--dry-run]
+# stage-model.sh [--dry-run]
 #
 # Hugging Face -> S3 model staging: runs Job node-ops/model-stage (tools/stage_model/stage_model.py
-# and its pinned requirements.txt, mounted from the ConfigMap model-stage-code) on the cpu-demo pool
-# and waits for it. The Job writes the weights, config, tokenizer and licence files of
+# and its pinned requirements-cluster.txt, mounted from the ConfigMap model-stage-code as requirements.txt)
+# on the cpu-demo pool and waits for it. The Job writes the weights, config, tokenizer and licence files of
 # MODEL_ID@MODEL_REVISION flat under MODEL_S3_URI and <MODEL_S3_URI>/.done last: the layout
-# 11-prefetch.sh reads. Idempotent: a .done of the same revision ends the Job at once and files already
+# prefetch.sh reads. Idempotent: a .done of the same revision ends the Job at once and files already
 # in S3 with the size the Hub lists are skipped, so a failed run resumes. A previous Job is replaced
 # only once it is finished.
 #   --dry-run  print the ConfigMap and the Job (nothing else on stdout); no cluster call
@@ -88,7 +88,7 @@ model_id="${env_model_id:-$file_model_id}"
 revision="${env_model_revision:-$file_model_revision}"
 hf_token="$env_hf_token"
 bucket="${MODEL_BUCKET:-${CFG_MODEL_BUCKET:-}}"
-# Region of the bucket, from the config (never the caller's ambient AWS_REGION), as in 11-prefetch.sh.
+# Region of the bucket, from the config (never the caller's ambient AWS_REGION), as in prefetch.sh.
 region="${MODEL_BUCKET_REGION:-${CFG_AWS_REGION:-}}"
 
 # ---------------------------------------------------------------- preflight (before any kubectl call)
@@ -164,7 +164,7 @@ fi
 case "$region" in
   *[!a-z0-9-]*) die "invalid AWS_REGION '$region'" ;;
 esac
-for f in stage_model.py requirements.txt; do
+for f in stage_model.py requirements-cluster.txt; do
   [ -f "$TOOL_DIR/$f" ] || die "missing $TOOL_DIR/$f"
 done
 ctx=""
@@ -305,7 +305,7 @@ EOF
 # exist in the kubeconfig.
 kube create configmap "$STAGE_CONFIGMAP" -n "$NODE_OPS_NS" \
   --from-file="stage_model.py=$TOOL_DIR/stage_model.py" \
-  --from-file="requirements.txt=$TOOL_DIR/requirements.txt" \
+  --from-file="requirements.txt=$TOOL_DIR/requirements-cluster.txt" \
   --dry-run=client -o yaml </dev/null >"$work/configmap.yaml"
 render_job >"$work/job.yaml"
 {

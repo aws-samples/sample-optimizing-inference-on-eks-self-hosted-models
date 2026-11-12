@@ -1,5 +1,5 @@
 # GPU-node chores in the PSA-privileged node-ops namespace (namespace and the model-prefetch
-# ServiceAccount are created by the cluster Terraform). scripts/11-prefetch.sh renders this
+# ServiceAccount are created by the cluster Terraform). scripts/prefetch.sh renders this
 # directory and sets the model, bucket and region of each run on the Job.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization

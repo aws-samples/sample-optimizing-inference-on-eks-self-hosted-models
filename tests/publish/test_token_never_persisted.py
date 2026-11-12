@@ -7,7 +7,7 @@ followed end to end through the four places a token could be written:
 
 1. the file ``scripts/gen_env.py`` generates (``platform.env``), with the token exported in the shell,
    left by hand in an older ``platform.env``, or carried by a Terraform output (``HF_TOKEN`` is in ``FORBIDDEN_KEYS``);
-2. what ``scripts/10-stage-model.sh`` renders (``--dry-run``) and applies, its stdout and stderr, every kubectl argv and
+2. what ``scripts/stage-model.sh`` renders (``--dry-run``) and applies, its stdout and stderr, every kubectl argv and
    payload, and every file under its ``TMPDIR``, ``HOME`` and working directory, also under ``bash -x`` and
    ``SHELLOPTS=xtrace``; the only allowed sink is the stdin of the one ``kubectl create secret`` call;
 3. every tracked Terraform file: no variable can hold the token value (only ``hf_token_secret_arn``, a reference),
@@ -116,7 +116,7 @@ def files_holding_the_token(root: Path, *, skip: tuple[Path, ...] = ()) -> list[
 
 
 def stage(box: H.Box, mode: list[str], trace: str, **env: str | None) -> H.Run:
-    """Run scripts/10-stage-model.sh in ``box`` with HF_TOKEN set, optionally under a shell trace.
+    """Run scripts/stage-model.sh in ``box`` with HF_TOKEN set, optionally under a shell trace.
 
     Args:
         box: The isolated run box of the harness.
@@ -191,7 +191,7 @@ def test_a_token_output_is_refused_and_earlier_files_stay_byte_identical(tmp_pat
     assert files_holding_the_token(root) == [], "no temporary file holds the token"
 
 
-# --------------------------------------------------------------------------------------- (2) 10-stage-model.sh renders
+# --------------------------------------------------------------------------------------- (2) stage-model.sh renders
 @pytest.mark.parametrize("trace", TRACES)
 def test_dry_run_renders_no_secret_and_no_sink_holds_the_token(box: H.Box, trace: str) -> None:
     res = stage(box, ["--dry-run"], trace)
@@ -293,7 +293,7 @@ def test_terraform_never_reads_stores_or_outputs_the_token() -> None:
     tf = _tracked_terraform()
     joined = "\n".join(t for r, t in tf.items() if r.endswith(".tf"))
     assert not re.search(r'(resource|data|ephemeral)\s+"aws_secretsmanager_secret_version"', joined), "the value would enter the state"
-    assert not re.search(r'resource\s+"kubernetes_secret(_v1)?"', joined), "the hf-token Secret is ephemeral, created by scripts/10-stage-model.sh"
+    assert not re.search(r'resource\s+"kubernetes_secret(_v1)?"', joined), "the hf-token Secret is ephemeral, created by scripts/stage-model.sh"
     for name, body in hcl.blocks(joined, "resource", 2).items():
         if name.startswith("kubectl_manifest."):
             assert not re.search(r"kind:\s*Secret|kind\s*=\s*\"Secret\"", body), f"{name} manages a Secret"

@@ -2,7 +2,7 @@
 # shellcheck source-path=SCRIPTDIR
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
-# 11-prefetch.sh [--model-id ORG/NAME] [--revision SHA] [--force] [--wait]
+# prefetch.sh [--model-id ORG/NAME] [--revision SHA] [--force] [--wait]
 #
 # S3 -> NVMe weights prefetch on the GPU node. Submits the
 # node-ops helper pod and Job/model-prefetch, then returns: the copy, its timing (recorded in

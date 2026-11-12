@@ -6,15 +6,15 @@
 Reads ``terraform output -json`` of ``terraform/cluster`` (``--from-json FILE`` or, without it,
 ``terraform -chdir=<repo>/terraform/cluster output -json``) and writes one file,
 ``manifests/config/platform.env``: the file the scripts (``scripts/lib/common.sh``,
-``scripts/10-stage-model.sh``) read. It holds ``platform_env`` plus
+``scripts/stage-model.sh``) read. It holds ``platform_env`` plus
 ``sample_env`` (``MODEL_ID``, ``MODEL_REVISION``, ``RUNTIME_IMAGE`` and, when Terraform sets it,
 ``HF_TOKEN_SECRET_ARN``).
 
 It also carries the model path: ``MODEL_S3_PREFIX`` (the ``sample_env`` value when Terraform sets it,
 else ``<MODEL_ID>/<MODEL_REVISION>``) and ``MODEL_S3_URI`` = ``s3://<MODEL_BUCKET>/<MODEL_S3_PREFIX>``,
-where scripts/10-stage-model.sh stages the model and 11-prefetch.sh reads it. ``HF_TOKEN`` is never
+where scripts/stage-model.sh stages the model and prefetch.sh reads it. ``HF_TOKEN`` is never
 generated: a token in any output is refused. The optional token of a gated model is exported in the shell
-that runs scripts/10-stage-model.sh (it reads the process environment) and never written to this file,
+that runs scripts/stage-model.sh (it reads the process environment) and never written to this file,
 which every run overwrites.
 
 The file is plain ``KEY=VALUE`` lines under a ``# GENERATED`` header, sorted, so two runs on the same

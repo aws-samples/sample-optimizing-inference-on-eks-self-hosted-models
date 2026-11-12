@@ -1,6 +1,6 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
-"""Harness of the ``scripts/10-stage-model.sh`` tests: a recording fake ``kubectl`` that models a Secret, a Job and a ConfigMap.
+"""Harness of the ``scripts/stage-model.sh`` tests: a recording fake ``kubectl`` that models a Secret, a Job and a ConfigMap.
 
 Nothing here talks to AWS or to a cluster. The fake records, per call, its argv and the PAYLOAD it received (stdin plus the
 contents of every file the argv names), so a test can tell where a value travelled: argv (visible in ``ps``), stdin or a file.
@@ -33,7 +33,7 @@ BUCKET = "demo-models-" + "1" * 12 + "-use2"
 PREFIX = f"{MODEL}/{REVISION}"
 URI = f"s3://{BUCKET}/{PREFIX}"
 IMAGE = "public.ecr.aws/docker/library/python:3.12-slim@sha256:" + "a" * 64
-SCRIPT = S.SCRIPTS_DIR / "10-stage-model.sh"
+SCRIPT = S.SCRIPTS_DIR / "stage-model.sh"
 JOB = "model-stage"
 # The name of the Kubernetes Secret object (not a credential), from fragments: Bandit B105 reads any literal assigned to
 # a name like SECRET as a hard-coded password.
@@ -266,13 +266,13 @@ class Box:
 
     def run(self, *args: str, timeout: float = 60, **env: str | None) -> Run:
         self.reset()
-        assert SCRIPT.is_file(), "scripts/10-stage-model.sh must exist"
+        assert SCRIPT.is_file(), "scripts/stage-model.sh must exist"
         proc = lib_proc.run([str(SCRIPT), *args], cwd=self.root / "cwd", env=self.env(**env), stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout, check=False)
         return Run(proc.returncode, proc.stdout, proc.stderr, self.calls(), self.tmp)
 
     def start(self, *args: str, **env: str | None) -> subprocess.Popen[str]:
         self.reset()
-        assert SCRIPT.is_file(), "scripts/10-stage-model.sh must exist"
+        assert SCRIPT.is_file(), "scripts/stage-model.sh must exist"
         # preexec_fn is safe here: the test process starts no threads (PLW1509 is about forking a threaded parent).
         return lib_proc.start([str(SCRIPT), *args], cwd=self.root / "cwd", env=self.env(**env), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True, preexec_fn=_default_sigint)
 

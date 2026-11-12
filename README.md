@@ -107,7 +107,7 @@ Fill in `terraform/bootstrap/terraform.tfvars` and `terraform/cluster/terraform.
 `gpu_capacity_type = "capacity-block"`, `capacity_reservation_ids` to your Capacity Block ID:
 `terraform/cluster/variables.tf` rejects the shipped `<YOUR_EGRESS_IP>/32` and `[]`.
 The cluster example already sets `runtime_image` to the public image pinned in `versions.env`. For a gated model, also
-`export HF_TOKEN=<read token>` in the same shell. [Step 4 of docs/DEPLOY.md](docs/DEPLOY.md#4-stage-the-model-scripts10-stage-modelsh)
+`export HF_TOKEN=<read token>` in the same shell. [Step 4 of docs/DEPLOY.md](docs/DEPLOY.md#4-stage-the-model-scriptsstage-modelsh)
 explains the `STAGE_IMAGE` digest used below. The full procedure is in [docs/DEPLOY.md](docs/DEPLOY.md).
 
 ```bash
@@ -116,7 +116,7 @@ terraform -chdir=terraform/cluster init && terraform -chdir=terraform/cluster ap
 eval "$(terraform -chdir=terraform/cluster output -raw configure_kubectl)"
 python3 scripts/gen_env.py
 export KUBE_CONTEXT="$(terraform -chdir=terraform/cluster output -raw cluster_name)" STAGE_IMAGE="public.ecr.aws/docker/library/python:3.12-slim@$(crane digest public.ecr.aws/docker/library/python:3.12-slim)"
-scripts/10-stage-model.sh && scripts/11-prefetch.sh --wait
+scripts/stage-model.sh && scripts/prefetch.sh --wait
 kubectl --context "$KUBE_CONTEXT" apply --server-side -f examples/00-baseline/manifest.yaml
 ```
 
@@ -128,7 +128,7 @@ the GPU node at a time.
 | Path | Content |
 |---|---|
 | `terraform/` | `bootstrap/` (S3 buckets) and `cluster/` (VPC, EKS Auto Mode, GPU pools, Dynamo, observability): [terraform/README.md](terraform/README.md) |
-| `scripts/` | `gen_env.py`, `10-stage-model.sh`, `11-prefetch.sh` and `90-teardown.sh` |
+| `scripts/` | `gen_env.py`, `stage-model.sh`, `prefetch.sh` and `teardown.sh` |
 | `manifests/` | `config/` (the platform env) and `node-ops/` (Kustomize: the prefetch Job and its helper pod) |
 | `examples/` | [examples/](examples/): one folder per cell, all eight (S0 to S7), with its `manifest.yaml` and its README |
 | `tools/` | `stage_model/` (staging Job) |
@@ -148,7 +148,7 @@ the breakdown and the pricing pages are in [docs/DEPLOY.md](docs/DEPLOY.md#teard
 
 Teardown order, with the commands, is in [docs/DEPLOY.md](docs/DEPLOY.md#teardown): delete the DGDs and GPU
 NodeClaims, destroy `terraform/cluster`, empty the buckets, then destroy `terraform/bootstrap`. After a failed or
-partial apply, `scripts/90-teardown.sh --from-terraform` reads the values it needs from the terraform outputs.
+partial apply, `scripts/teardown.sh --from-terraform` reads the values it needs from the terraform outputs.
 
 ## Documentation
 

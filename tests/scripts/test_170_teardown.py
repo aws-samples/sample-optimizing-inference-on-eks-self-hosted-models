@@ -1,6 +1,6 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
-"""``scripts/90-teardown.sh``: the documented teardown order, automated.
+"""``scripts/teardown.sh``: the documented teardown order, automated.
 
 Contract (docs/DEPLOY.md, section Teardown):
 
@@ -55,7 +55,7 @@ import lib_scripts as S
 import pytest
 import q38_scripts as T
 
-SCRIPT = "90-teardown.sh"
+SCRIPT = "teardown.sh"
 SCRIPT_PATH = S.SCRIPTS_DIR / SCRIPT
 DEPLOY = S.REPO_ROOT / "docs" / "DEPLOY.md"
 TOOLS = ("kubectl", "aws", "terraform")
@@ -936,8 +936,8 @@ def _teardown_section() -> str:
 
 def test_deploy_teardown_describes_the_script_first_and_keeps_the_manual_order() -> None:
     sec = _teardown_section()
-    first = sec.find("scripts/90-teardown.sh")
-    assert first >= 0, "the Teardown section describes scripts/90-teardown.sh"
+    first = sec.find("scripts/teardown.sh")
+    assert first >= 0, "the Teardown section describes scripts/teardown.sh"
     assert first < sec.find("kubectl delete"), "the script comes first, the manual order is the fallback"
     for flag in ("--yes", "--destroy-cluster", "--after-destroy", "--empty-models", "--pool", "--timeout"):
         assert flag in sec, f"the Teardown section names {flag}"

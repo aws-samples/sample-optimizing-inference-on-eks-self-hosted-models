@@ -2,12 +2,12 @@
 # SPDX-License-Identifier: MIT-0
 """Node-ops Job fixes found on a real cluster.
 
-* ``11-prefetch.sh`` applies the output of ``kubectl set env --local -o yaml`` (the Job with the values of the
+* ``prefetch.sh`` applies the output of ``kubectl set env --local -o yaml`` (the Job with the values of the
   run), never the unmodified render.
-* ``11-prefetch.sh`` never deletes a Job that is still active; a terminal Job (Complete or Failed) is deleted and
+* ``prefetch.sh`` never deletes a Job that is still active; a terminal Job (Complete or Failed) is deleted and
   replaced; an absent Job is simply submitted; an active Job is refused (non-zero, message naming the Job, no delete,
   no apply).  Contract assumed for reading the Job state: ``kubectl get job <name> -n node-ops -o json`` (the same
-  call the ``--wait`` loop of 11-prefetch.sh already makes).
+  call the ``--wait`` loop of prefetch.sh already makes).
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ ACTIVE = {"status": {"active": 1}}
 COMPLETE = {"status": {"conditions": [{"type": "Complete", "status": "True"}], "succeeded": 1}}
 FAILED = {"status": {"conditions": [{"type": "Failed", "status": "True"}], "failed": 1}}
 
-PREFETCH = ("11-prefetch.sh", "model-prefetch", ())
+PREFETCH = ("prefetch.sh", "model-prefetch", ())
 SCRIPTS = [PREFETCH]
 IDS = ["prefetch"]
 
@@ -57,7 +57,7 @@ def _applied(tmp: Path) -> list[dict[str, str]]:
 
 # ----------------------------------------------------------------------------- the applied render
 def test_prefetch_applies_the_set_env_output_when_it_changed_something(tmp_path: Path) -> None:
-    res = _run(tmp_path, "11-prefetch.sh", ("--model-id", "acme/Other-1B", "--revision", "c" * 40), {"set_env_output": CHANGED})
+    res = _run(tmp_path, "prefetch.sh", ("--model-id", "acme/Other-1B", "--revision", "c" * 40), {"set_env_output": CHANGED})
     assert res.rc == 0, res.stdout + res.stderr
     contents = [a["content"] for a in _applied(tmp_path)]
     assert any("CHANGED-BY-SET-ENV" in c for c in contents), contents
@@ -65,15 +65,15 @@ def test_prefetch_applies_the_set_env_output_when_it_changed_something(tmp_path:
 
 
 def test_prefetch_still_passes_the_job_parameters_to_set_env(tmp_path: Path) -> None:
-    res = _run(tmp_path, "11-prefetch.sh", (), {})
+    res = _run(tmp_path, "prefetch.sh", (), {})
     sets = [c for c in res.kubectl_calls() if "set" in c["argv"] and "env" in c["argv"]]
     assert sets and any(a.startswith("MODEL_S3_URI=s3://qa-models/") for a in sets[0]["argv"]), [c["argv"] for c in sets]
 
 
 # ----------------------------------------------------------------------------- an active Job is never deleted
 ACTIVE_CASES = [
-    ("11-prefetch.sh", "model-prefetch", ()),
-    ("11-prefetch.sh", "model-prefetch", ("--force",)),
+    ("prefetch.sh", "model-prefetch", ()),
+    ("prefetch.sh", "model-prefetch", ("--force",)),
 ]
 
 

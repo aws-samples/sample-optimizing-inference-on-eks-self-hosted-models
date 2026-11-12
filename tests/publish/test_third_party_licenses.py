@@ -28,8 +28,8 @@ What is checked
   SPDX file-copyright line or a non-MIT-0 SPDX licence id is a SHIPPED row.  NOTICE lists exactly the files of the
   Apache-2.0 SHIPPED rows.
 * Coverage of the pins: every provider of the Terraform lock files, every registry module, every Helm chart of
-  terraform/cluster (version: the variable default), every package of tools/stage_model/requirements.txt and of
-  tests/requirements-test.txt (the test environment, markers dropped) and the runtime image of versions.env are USED
+  terraform/cluster (version: the variable default), every package of tools/stage_model/requirements-cluster.txt and of
+  requirements-test.txt (the test environment, markers dropped) and the runtime image of versions.env are USED
   rows with that version, whose ``In this repository`` cell names the file that pins it.
 
 Allowlist (documented, nothing else is exempt)
@@ -432,14 +432,14 @@ def test_helm_charts_are_listed() -> None:
 
 
 def test_stage_model_requirements_are_listed() -> None:
-    src = "tools/stage_model/requirements.txt"
+    src = "tools/stage_model/requirements-cluster.txt"
     pins = [(*ln.strip().split("=="), src) for ln in (ROOT / src).read_text(encoding="utf-8").splitlines()
             if ln.strip() and not ln.startswith("#")]
     _assert_listed(pins, f"pins of {src}")
 
 
 def test_test_requirements_are_listed() -> None:
-    src = "tests/requirements-test.txt"
+    src = "requirements-test.txt"
     assert (ROOT / src).is_file(), f"{src} missing"
     pins = [(*ln.split(";")[0].strip().split("=="), src) for ln in (ROOT / src).read_text(encoding="utf-8").splitlines()
             if ln.strip() and not ln.startswith("#")]

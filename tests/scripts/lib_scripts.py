@@ -29,7 +29,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS_DIR = Path(os.environ.get("SCRIPTS_DIR", REPO_ROOT / "scripts"))
 
 REQUIRED_SCRIPTS = (
-    "11-prefetch.sh",
+    "prefetch.sh",
 )
 
 STUB_SOURCE = r'''#!__PYTHON__

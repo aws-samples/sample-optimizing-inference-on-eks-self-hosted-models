@@ -143,7 +143,7 @@ def test_every_path_and_script_named_in_a_public_doc_exists(rel: str) -> None:
 @pytest.mark.parametrize("p", [ds.DEPLOY, ds.TROUBLE], ids=lambda p: p.name)
 def test_hf_token_docs_say_to_export_it_in_the_shell(p: Path) -> None:
     text = p.read_text(encoding="utf-8")
-    assert re.search(r"export HF_TOKEN=", text), f"{p.name}: show `export HF_TOKEN=...` (scripts/10-stage-model.sh reads the environment)"
+    assert re.search(r"export HF_TOKEN=", text), f"{p.name}: show `export HF_TOKEN=...` (scripts/stage-model.sh reads the environment)"
     if p == ds.DEPLOY:
         assert "hf_token_secret_arn" in text
         assert re.search(r"(?i)platform\.env[^.\n]*(generated|overwritten)|(generated|overwritten)[^.\n]*platform\.env", text), (

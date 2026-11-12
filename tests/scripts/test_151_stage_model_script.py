@@ -1,6 +1,6 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
-"""Tests: ``scripts/10-stage-model.sh [--dry-run]``, the Hugging Face -> S3 model staging Job.
+"""Tests: ``scripts/stage-model.sh [--dry-run]``, the Hugging Face -> S3 model staging Job.
 
 Contract (model staging job; names are fixed so the Terraform, the script and the tests agree):
 
@@ -8,7 +8,7 @@ Contract (model staging job; names are fixed so the Terraform, the script and th
   reads) provides MODEL_ID, MODEL_REVISION, MODEL_S3_PREFIX, MODEL_S3_URI, MODEL_BUCKET and AWS_REGION. The optional HF_TOKEN comes from the process environment only (test_153). MODEL_S3_URI defaults to ``s3://<bucket>/<MODEL_ID>/<MODEL_REVISION>``.
   ``STAGE_IMAGE`` is the Job image (``repo:tag@sha256:<64 hex>``); the script's default is a placeholder digest it refuses.
 * Objects, all in ``node-ops``: ConfigMap ``model-stage-code`` (``kubectl create configmap --from-file --dry-run=client``:
-  ``stage_model.py`` and ``requirements.txt`` of ``tools/stage_model``), Job ``model-stage`` (ServiceAccount ``model-stager``,
+  ``stage_model.py`` and ``requirements-cluster.txt`` of ``tools/stage_model``, the latter under the key ``requirements.txt``), Job ``model-stage`` (ServiceAccount ``model-stager``,
   Terraform-owned), and, only when HF_TOKEN is set, Secret ``hf-token`` (key HF_TOKEN) that the Job reads with an OPTIONAL
   ``secretKeyRef``. The Secret is created before the Job, reaches kubectl through stdin or a file (never argv) and is deleted
   by a trap on EXIT / INT / TERM once the Job ends or the script dies. The script waits for the Job and exits with its result.
@@ -73,7 +73,7 @@ def only_the_stale_secret_cleanup(res: Run) -> bool:
 
 # ----------------------------------------------------------------------------------- script hygiene
 def test_script_exists_executable_strict_and_parses() -> None:
-    assert SCRIPT.is_file(), "scripts/10-stage-model.sh must exist"
+    assert SCRIPT.is_file(), "scripts/stage-model.sh must exist"
     assert os.access(SCRIPT, os.X_OK)
     text = SCRIPT.read_text()
     assert text.splitlines()[0] in ("#!/usr/bin/env bash", "#!/bin/bash")
@@ -119,7 +119,7 @@ def test_configmap_carries_the_tool_files_verbatim(box: Box) -> None:
     assert cm["metadata"]["namespace"] == NS
     assert set(cm["data"]) == {"stage_model.py", "requirements.txt"}
     assert cm["data"]["stage_model.py"] == (TOOL / "stage_model.py").read_text()
-    assert cm["data"]["requirements.txt"] == (TOOL / "requirements.txt").read_text()
+    assert cm["data"]["requirements.txt"] == (TOOL / "requirements-cluster.txt").read_text()
 
 
 def test_job_identity_and_environment(box: Box) -> None:

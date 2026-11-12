@@ -61,7 +61,7 @@ model_id       = "Qwen/Qwen3.8-27B-FP8"
 model_revision = "017b9c7af6b5689d5dd426a76e0bc077eb5ca20a"
 
 # Object prefix of the model in the model bucket (MODEL_S3_PREFIX / MODEL_S3_URI of the generated env):
-# scripts/10-stage-model.sh stages the model there, 11-prefetch.sh reads it, and the model-stager role
+# scripts/stage-model.sh stages the model there, prefetch.sh reads it, and the model-stager role
 # may write only there. null = <model_id>/<model_revision>; set it to keep an existing bucket layout.
 # model_s3_prefix = "Qwen3.8-27B-FP8"
 

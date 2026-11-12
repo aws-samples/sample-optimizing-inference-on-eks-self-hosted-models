@@ -9,7 +9,7 @@ package is defined once.
 
 What is checked
 ===============
-* ``tests/requirements-test.txt`` (``PIN_FILE``) carries the MIT-0 SPDX header and pins every package of the test
+* ``requirements-test.txt`` (``PIN_FILE``) carries the MIT-0 SPDX header and pins every package of the test
   environment with ``==`` (an environment marker may follow ``;``): pytest, PyYAML, jsonschema, defusedxml and every
   package they pull in, so that the same set is installed on every run.
 * No tracked text file the public tree ships (``sanitize_scan.public_files``) passes a requirement to ``--with``
@@ -28,8 +28,8 @@ import re
 import sanitize_scan
 
 ROOT = sanitize_scan.REPO_ROOT
-PIN_FILE = "tests/requirements-test.txt"
-PIN_FILES = (PIN_FILE, "tools/stage_model/requirements.txt")
+PIN_FILE = "requirements-test.txt"
+PIN_FILES = (PIN_FILE, "tools/stage_model/requirements-cluster.txt")
 TEST_PACKAGES = ("pytest", "pyyaml", "jsonschema", "defusedxml")
 SPDX_HEADER = ["# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.",
                "# SPDX-" "License-Identifier: MIT-0"]

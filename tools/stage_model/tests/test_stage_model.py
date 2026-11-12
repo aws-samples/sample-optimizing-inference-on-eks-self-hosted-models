@@ -422,8 +422,8 @@ def test_empty_token_counts_as_unset(h: Harness, sm: ModuleType) -> None:
 
 # ----------------------------------------------------------------------------------- pins and source hygiene
 def test_requirements_pin_exact_versions_the_contract_was_validated_with() -> None:
-    req = TOOL / "requirements.txt"
-    assert req.is_file(), "tools/stage_model/requirements.txt must exist (it is mounted in the Job through the ConfigMap)"
+    req = TOOL / "requirements-cluster.txt"
+    assert req.is_file(), "tools/stage_model/requirements-cluster.txt must exist (it is mounted in the Job through the ConfigMap)"
     lines = [ln.strip() for ln in req.read_text().splitlines() if ln.strip() and not ln.lstrip().startswith("#")]
     assert all(re.fullmatch(r"[A-Za-z0-9_.\[\]-]+==\d+(\.\d+)*", ln) for ln in lines), f"every requirement must be pinned with ==: {lines}"
     pins = {ln.split("==")[0].lower().replace("-", "_"): ln.split("==")[1] for ln in lines}

@@ -50,7 +50,7 @@ MODEL_REVISION="${MODEL_REVISION:-${CFG_MODEL_REVISION:-}}"
 NODE_OPS_NS="node-ops"
 NODE_SHELL="ephemeral-shell"
 
-# Scenario namespaces the scripts manage: 90-teardown.sh deletes the DGDs of these.
+# Scenario namespaces the scripts manage: teardown.sh deletes the DGDs of these.
 SCENARIO_NAMESPACES="s-agg s-agg-hic s-dis s-dis-hic"
 
 # now: epoch seconds (honours the test harness clock, unlike $SECONDS).
