@@ -1,6 +1,6 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
-"""``scripts/11-prefetch.sh``: model-agnostic S3 -> NVMe prefetch.
+"""``scripts/prefetch.sh``: model-agnostic S3 -> NVMe prefetch.
 
 No per-model case table and no ``--model`` flag.  The model is described by ``MODEL_ID`` (``org/name``), ``MODEL_REVISION`` and
 the source; the defaults are the keys of the same name in the platform config (``MODEL_ID``, ``MODEL_REVISION``, ``MODEL_S3_URI``).
@@ -38,7 +38,7 @@ OTHER = ("acme/Other-1B", "c" * 40)
 
 def _run(tmp: Path, *args: str, env: dict[str, str] | None = None, cfg: dict[str, Any] | None = None) -> S.Result:
     base = {"kustomize_output": "apiVersion: batch/v1\nkind: Job\nmetadata:\n  name: R\n", "apply_requires_objects": True, "set_env_output": CHANGED, **(cfg or {})}
-    return S.Sandbox(tmp, base).run("11-prefetch.sh", *args, env={**T.ENV_Q, **POLL, "MODEL_BUCKET": "", **(env or {})})
+    return S.Sandbox(tmp, base).run("prefetch.sh", *args, env={**T.ENV_Q, **POLL, "MODEL_BUCKET": "", **(env or {})})
 
 
 def _set_env(res: S.Result) -> list[str]:
@@ -184,11 +184,11 @@ def test_a_config_without_model_keys_needs_the_flags(tmp_path: Path) -> None:
 
 
 def test_the_script_has_no_per_model_table() -> None:
-    text = (S.SCRIPTS_DIR / "11-prefetch.sh").read_text()
+    text = (S.SCRIPTS_DIR / "prefetch.sh").read_text()
     # the removed names are spelled with fragments so this file does not carry them
     for needle in ("g" + "lm", "G" + "LM", "qwen3-32b", "qwen38", "Qwen", "Radix" + "Ark", "DEMO_" + "TRACK", "TRA" + "CKB",
                    "TRACK" + "Q"):
-        assert needle not in text, f"scripts/11-prefetch.sh still names {needle}"
+        assert needle not in text, f"scripts/prefetch.sh still names {needle}"
 
 
 # ----------------------------------------------------------------------------- --wait and the active-Job refusal

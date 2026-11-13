@@ -3,7 +3,7 @@
 # revision) and writes the .done marker last.
 # The ServiceAccount and its Pod Identity (read-only on the model bucket) are created by
 # terraform/cluster/iam-model-access.tf.
-# scripts/11-prefetch.sh sets MODEL_S3_URI, MODEL_REVISION, MODEL_CACHE_REPO, AWS_REGION and FORCE
+# scripts/prefetch.sh sets MODEL_S3_URI, MODEL_REVISION, MODEL_CACHE_REPO, AWS_REGION and FORCE
 # on every run; the bucket of MODEL_S3_URI and AWS_REGION below are placeholders.
 # Idempotent: exits at once when the marker of the pinned revision is present, unless FORCE=1.
 apiVersion: batch/v1

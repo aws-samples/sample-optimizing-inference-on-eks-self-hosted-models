@@ -189,7 +189,7 @@ def test_readme_cost_and_teardown_pointer_and_links() -> None:
 
 def test_deploy_follows_the_real_procedure_in_order() -> None:
     text = _read(DEPLOY)
-    steps = ["terraform/bootstrap", "terraform/cluster", "scripts/gen_env.py", "scripts/10-stage-model.sh", "scripts/11-prefetch.sh",
+    steps = ["terraform/bootstrap", "terraform/cluster", "scripts/gen_env.py", "scripts/stage-model.sh", "scripts/prefetch.sh",
              "examples/00-baseline", "port-forward", "terraform destroy"]
     assert _in_order(text, steps) is None, f"DEPLOY.md: step missing or out of order at {_in_order(text, steps)!r}"
 
@@ -261,7 +261,7 @@ def test_every_named_repository_path_exists(p: Path) -> None:
 
 @pytest.mark.parametrize("p", MAIN_DOCS, ids=lambda p: p.name)
 def test_every_named_script_file_exists_somewhere(p: Path) -> None:
-    """Bare file names in backticks (gen_env.py, 11-prefetch.sh, ...) must exist somewhere in the tree."""
+    """Bare file names in backticks (gen_env.py, prefetch.sh, ...) must exist somewhere in the tree."""
     text = _read(p)
     names = {m.group(1) for m in re.finditer(r"`([\w.-]+\.(?:sh|py))(?:\s[^`]*)?`", text)}
     have = {q.name for q in ROOT.rglob("*") if q.is_file() and ".git" not in q.parts and "__pycache__" not in q.parts}

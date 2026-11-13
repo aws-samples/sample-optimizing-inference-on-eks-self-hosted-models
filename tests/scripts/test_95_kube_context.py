@@ -10,7 +10,7 @@ Why: the scripts act on the *current* kubectl context (the prefetch script appli
 * The flag is ONE argv token, ``--context=<value>``.  Reason: the harness ``kubectl`` stub (and any
   naive parser) takes the first non-dash token as the sub-command, so the two-token form
   ``--context VALUE`` makes ``VALUE`` look like the verb.  It is also valid kubectl syntax.
-* Scripts that touch the cluster (``11-prefetch.sh``) refuse to run - non-zero exit, a message naming ``KUBE_CONTEXT``, and **no**
+* Scripts that touch the cluster (``prefetch.sh``) refuse to run - non-zero exit, a message naming ``KUBE_CONTEXT``, and **no**
   kubectl call and no delegated command - when ``KUBE_CONTEXT`` is unset/empty AND
   ``KUBERNETES_SERVICE_HOST`` is unset/empty.  In-cluster runs are allowed
   without it, and then no ``--context`` flag is added.
@@ -36,7 +36,7 @@ NS_COMPS = {
     "s-dis-hic": [("prefill-ddd-one", "10.0.2.101", "prefill"), ("decode-eee-one", "10.0.2.102", "decode")],
 }
 CASES: dict[str, tuple[str, ...]] = {
-    "11-prefetch.sh": (),
+    "prefetch.sh": (),
 }
 OFF_CLUSTER = {"KUBE_CONTEXT": "", "KUBERNETES_SERVICE_HOST": ""}
 CTX = "arn:aws:eks:us-east-2:123456789012:cluster/dynamo-sample-use2"  # the CLUSTER_NAME of the placeholder platform.env, as an EKS ARN
@@ -78,7 +78,7 @@ def _script_files() -> list[Path]:
 
 
 def test_scripts_exist_to_scan() -> None:
-    assert [f for f in _script_files() if f.name == "11-prefetch.sh"], f"no scripts under {S.SCRIPTS_DIR}"
+    assert [f for f in _script_files() if f.name == "prefetch.sh"], f"no scripts under {S.SCRIPTS_DIR}"
 
 
 @pytest.mark.parametrize("path", _script_files(), ids=lambda p: p.name)
@@ -130,7 +130,7 @@ def test_every_kubectl_call_carries_the_context(tmp_path: Path, script: str) -> 
 
 
 def test_context_wins_when_both_are_present(tmp_path: Path) -> None:
-    res = _sandbox(tmp_path).run("11-prefetch.sh", env={"KUBE_CONTEXT": CTX, "KUBERNETES_SERVICE_HOST": "10.96.0.1"})
+    res = _sandbox(tmp_path).run("prefetch.sh", env={"KUBE_CONTEXT": CTX, "KUBERNETES_SERVICE_HOST": "10.96.0.1"})
     assert res.rc == 0, res.stdout + res.stderr
     applies = [c for c in res.kubectl_calls() if "apply" in c["argv"]]
     assert applies and S.arg_value(applies[0]["argv"], "--context") == CTX

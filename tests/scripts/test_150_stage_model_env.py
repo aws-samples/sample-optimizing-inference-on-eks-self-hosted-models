@@ -10,7 +10,7 @@ Contract (model staging job):
   ``s3://<MODEL_BUCKET>/<MODEL_S3_PREFIX>``. A prefix with a leading or trailing slash, ``//``, ``..`` or characters outside
   ``[A-Za-z0-9._/-]`` is refused (nothing written; the message names the key, never the value).
 * ``HF_TOKEN`` is never generated: a token in any Terraform output is refused like a sensitive output.
-* ``scripts/11-prefetch.sh`` (no ``--model``: the model is ``MODEL_ID``/``MODEL_REVISION`` of platform.env) reads
+* ``scripts/prefetch.sh`` (no ``--model``: the model is ``MODEL_ID``/``MODEL_REVISION`` of platform.env) reads
   ``CFG_MODEL_S3_PREFIX`` as its default source prefix, so what the staging Job writes is what the prefetch reads;
   ``MODEL_PREFIX`` in the environment still wins.
 """
@@ -81,7 +81,7 @@ def test_hf_token_in_a_terraform_output_is_refused_and_never_written(tmp_path: P
     assert files_under(root) == []
 
 
-# ----------------------------------------------------------------------------------- 11-prefetch consistency
+# ----------------------------------------------------------------------------------- prefetch consistency
 CHANGED = "apiVersion: batch/v1\nkind: Job\nmetadata:\n  name: CHANGED-BY-SET-ENV\n"
 
 
@@ -90,7 +90,7 @@ def _prefetch(tmp: Path, cfg_lines: list[str], env: dict[str, str] | None = None
     keys = ["AWS_REGION=us-east-2", f"MODEL_BUCKET={BUCKET}", f"MODEL_ID={MODEL_ID}", f"MODEL_REVISION={REVISION}"]
     penv.write_text("\n".join([*keys, *cfg_lines]) + "\n")
     base = {"kustomize_output": "apiVersion: batch/v1\nkind: Job\nmetadata:\n  name: R\n", "apply_requires_objects": True, "set_env_output": CHANGED}
-    res = S.Sandbox(tmp / "sb", base).run("11-prefetch.sh", env={"PLATFORM_ENV": str(penv), "MODEL_BUCKET": "", **(env or {})})
+    res = S.Sandbox(tmp / "sb", base).run("prefetch.sh", env={"PLATFORM_ENV": str(penv), "MODEL_BUCKET": "", **(env or {})})
     assert res.rc == 0, res.stdout + res.stderr
     calls = [c for c in res.kubectl_calls() if "set" in c["argv"] and "env" in c["argv"]]
     assert calls, "no `kubectl set env` call carrying the Job parameters"

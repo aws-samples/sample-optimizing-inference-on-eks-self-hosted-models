@@ -297,7 +297,7 @@ variable "model_revision" {
 }
 
 variable "model_s3_prefix" {
-  description = "Object prefix of the model in the model bucket (MODEL_S3_PREFIX / MODEL_S3_URI of the generated env): scripts/10-stage-model.sh stages the model there and 11-prefetch.sh reads it; the model-stager role may write only there. null = <model_id>/<model_revision>"
+  description = "Object prefix of the model in the model bucket (MODEL_S3_PREFIX / MODEL_S3_URI of the generated env): scripts/stage-model.sh stages the model there and prefetch.sh reads it; the model-stager role may write only there. null = <model_id>/<model_revision>"
   type        = string
   default     = null
 

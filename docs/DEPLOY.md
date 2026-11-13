@@ -173,7 +173,7 @@ the tested one unless you pass `--allow-untested`. When it refuses, it writes no
 `terraform apply`. The scripts refuse to run without `KUBE_CONTEXT`, and it must name the cluster of `platform.env`.
 Like `STAGE_IMAGE` and `HF_TOKEN` below, it lives in this shell only: export it again in a new terminal.
 
-## 4. Stage the model (`scripts/10-stage-model.sh`)
+## 4. Stage the model (`scripts/stage-model.sh`)
 
 The script runs the Job `node-ops/model-stage` on `cpu-demo`. It copies `MODEL_ID` at `MODEL_REVISION` from Hugging Face
 to `MODEL_S3_URI` (weights, config, tokenizer and license files) and writes the `.done` marker last. Step 5 then copies
@@ -181,8 +181,8 @@ from that bucket to the disk of the GPU node. The Job runs in a Python container
 
 ```bash
 export STAGE_IMAGE="public.ecr.aws/docker/library/python:3.12-slim@$(crane digest public.ecr.aws/docker/library/python:3.12-slim)"
-scripts/10-stage-model.sh --dry-run   # prints the ConfigMap and the Job, no cluster call
-scripts/10-stage-model.sh             # applies the Job and waits for it
+scripts/stage-model.sh --dry-run   # prints the ConfigMap and the Job, no cluster call
+scripts/stage-model.sh             # applies the Job and waits for it
 ```
 
 In our run on 2026-11-06 the Job took 5 min 31 s and wrote 80 objects to the bucket: 79 files, 30,889,982,778 bytes
@@ -193,7 +193,7 @@ In our run on 2026-11-06 the Job took 5 min 31 s and wrote 80 objects to the buc
   `sha256:` prefix (observed), so the command above joins it after the `@` as it is; we ran `crane digest` and used what
   it printed, and the one-line form only joins the two. `crane manifest "$STAGE_IMAGE" >/dev/null`
   fails if the image does not exist. With a missing image the pod stays in
-  `ImagePullBackOff` until the Job deadline of 6 hours (`activeDeadlineSeconds` in `scripts/10-stage-model.sh`;
+  `ImagePullBackOff` until the Job deadline of 6 hours (`activeDeadlineSeconds` in `scripts/stage-model.sh`;
   inferred, not tested).
 - Public models need no token: the Job never sends one to them.
 - For a gated model, accept the license on the model page with the Hugging Face account that owns the token, then
@@ -208,12 +208,12 @@ In our run on 2026-11-06 the Job took 5 min 31 s and wrote 80 objects to the buc
 - The Job is idempotent: a `.done` of the same revision ends it at once, and files already in S3 are skipped.
 - Exit codes: [TROUBLESHOOTING.md](TROUBLESHOOTING.md#model-staging-exit-codes).
 
-## 5. Prefetch the weights to the GPU node (`scripts/11-prefetch.sh`)
+## 5. Prefetch the weights to the GPU node (`scripts/prefetch.sh`)
 
 ```bash
 aws ec2 describe-capacity-reservations --capacity-reservation-ids <cr-id> --region <region> \
   --query 'CapacityReservations[].State' --output text   # a Capacity Block must print active
-scripts/11-prefetch.sh --wait
+scripts/prefetch.sh --wait
 ```
 
 The Job `node-ops/model-prefetch` runs on the GPU node, copies the model from S3 to the local NVMe at
@@ -305,17 +305,17 @@ Terraform loads the dashboards of `dashboards/`: the R / D / O matrix, Dynamo, S
 
 ## Teardown
 
-`scripts/90-teardown.sh` runs the order below. It is a dry run by default: it prints every command and runs nothing
+`scripts/teardown.sh` runs the order below. It is a dry run by default: it prints every command and runs nothing
 until you pass `--yes`. It needs `KUBE_CONTEXT` set to the cluster of `manifests/config/platform.env`, and it takes the
 GPU pools, the region and the bucket names from that generated file only. After a failed or partial apply that file
 does not exist: see [After a failed or partial apply](#after-a-failed-or-partial-apply). In this section, steps 1 to 5
 are the teardown steps, numbered as the script prints them (`1/5` to `5/5`), not the deploy steps.
 
 ```bash
-scripts/90-teardown.sh                          # dry run of steps 1 to 3
-scripts/90-teardown.sh --yes                    # steps 1 and 2, then prints the cluster destroy command
-scripts/90-teardown.sh --destroy-cluster --yes  # steps 1 to 3; Terraform still asks before it destroys
-scripts/90-teardown.sh --after-destroy --yes    # step 4 for the results bucket, then prints step 5
+scripts/teardown.sh                          # dry run of steps 1 to 3
+scripts/teardown.sh --yes                    # steps 1 and 2, then prints the cluster destroy command
+scripts/teardown.sh --destroy-cluster --yes  # steps 1 to 3; Terraform still asks before it destroys
+scripts/teardown.sh --after-destroy --yes    # step 4 for the results bucket, then prints step 5
 ```
 
 - Step 2 deletes the NodeClaims of every pool in `GPU_POOLS` (or of each `--pool gpu-<name>`) and each `cpu-demo`
@@ -380,10 +380,10 @@ checkout. The script reads these variables only with `--from-terraform`, stops w
 and refuses to run when nothing names the cluster.
 
 ```bash
-scripts/90-teardown.sh --from-terraform                          # dry run of steps 1 to 3
-scripts/90-teardown.sh --from-terraform --destroy-cluster --yes  # steps 1 to 3; Terraform still asks before it destroys
+scripts/teardown.sh --from-terraform                          # dry run of steps 1 to 3
+scripts/teardown.sh --from-terraform --destroy-cluster --yes  # steps 1 to 3; Terraform still asks before it destroys
 export TEARDOWN_CLUSTER_NAME=<cluster name> TEARDOWN_AWS_REGION=<region>   # both printed by the previous run
-scripts/90-teardown.sh --after-destroy --from-terraform --yes    # step 4, bucket names from terraform/bootstrap
+scripts/teardown.sh --after-destroy --from-terraform --yes    # step 4, bucket names from terraform/bootstrap
 ```
 
 To empty the buckets by hand, take their names from `terraform -chdir=terraform/bootstrap output`. Delete the current

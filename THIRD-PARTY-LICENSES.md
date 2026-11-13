@@ -11,7 +11,7 @@ the architecture diagram are listed, with their sources and terms, in [docs/stat
 and are not repeated here.
 
 Each license below was read from the project's own license file, chart annotation, model card or package metadata
-on 2026-10-26, and on 2026-10-27 for the packages of `tests/requirements-test.txt` (their PyPI metadata; for
+on 2026-10-26, and on 2026-10-27 for the packages of `requirements-test.txt` (their PyPI metadata; for
 defusedxml also the LICENSE file of its wheel). A component marked "not verified" was not confirmed that way, and no
 license is claimed for it.
 
@@ -70,27 +70,27 @@ lists the Python ones.
 ### Python packages
 
 The test suites install pytest, PyYAML, jsonschema, defusedxml and every package they pull in from
-`tests/requirements-test.txt`, which pins each one to an exact version
-(`uv run --with-requirements tests/requirements-test.txt`).
+`requirements-test.txt`, which pins each one to an exact version
+(`uv run --with-requirements requirements-test.txt`).
 
 | Component | In this repository | Version | License | Notes |
 |---|---|---|---|---|
-| [attrs](https://pypi.org/project/attrs/) | `tests/requirements-test.txt` | 26.1.0 | MIT | test suites (jsonschema, referencing) |
-| [boto3](https://pypi.org/project/boto3/) | `tools/stage_model/requirements.txt` | 1.43.118 | Apache-2.0 | Model-stage Job |
-| [colorama](https://pypi.org/project/colorama/) | `tests/requirements-test.txt` | 0.4.6 | BSD-3-Clause | test suites (pytest, Windows only) |
-| [defusedxml](https://pypi.org/project/defusedxml/) | `tests/requirements-test.txt` | 0.7.1 | PSF-2.0 | test suites: the XML parser of `tests/publish/lib_xml.py`. Python Software Foundation License Version 2 (its LICENSE file; metadata `License: PSFL`) |
-| [huggingface_hub](https://pypi.org/project/huggingface-hub/) | `tools/stage_model/requirements.txt` | 2.3.0 | Apache-2.0 | Model-stage Job |
-| [iniconfig](https://pypi.org/project/iniconfig/) | `tests/requirements-test.txt` | 2.3.1 | MIT | test suites (pytest) |
-| [jsonschema](https://pypi.org/project/jsonschema/) | `tests/requirements-test.txt` | 4.26.0 | MIT | test suites |
-| [jsonschema-specifications](https://pypi.org/project/jsonschema-specifications/) | `tests/requirements-test.txt` | 2025.9.1 | MIT | test suites (jsonschema) |
-| [packaging](https://pypi.org/project/packaging/) | `tests/requirements-test.txt` | 26.3 | Apache-2.0 OR BSD-2-Clause | test suites (pytest) |
-| [pluggy](https://pypi.org/project/pluggy/) | `tests/requirements-test.txt` | 1.7.0 | MIT | test suites (pytest) |
-| [pygments](https://pypi.org/project/pygments/) | `tests/requirements-test.txt` | 2.21.0 | BSD-2-Clause | test suites (pytest) |
-| [pytest](https://pypi.org/project/pytest/) | `tests/requirements-test.txt` | 9.1.1 | MIT | test suites |
-| [PyYAML](https://pypi.org/project/PyYAML/) | `tests/requirements-test.txt` | 6.0.3 | MIT | test suites |
-| [referencing](https://pypi.org/project/referencing/) | `tests/requirements-test.txt` | 0.37.0 | MIT | test suites (jsonschema) |
-| [rpds-py](https://pypi.org/project/rpds-py/) | `tests/requirements-test.txt` | 2026.9.1 | MIT | test suites (jsonschema, referencing) |
-| [typing-extensions](https://pypi.org/project/typing-extensions/) | `tests/requirements-test.txt` | 4.16.0 | PSF-2.0 | test suites (referencing, Python below 3.13) |
+| [attrs](https://pypi.org/project/attrs/) | `requirements-test.txt` | 26.1.0 | MIT | test suites (jsonschema, referencing) |
+| [boto3](https://pypi.org/project/boto3/) | `tools/stage_model/requirements-cluster.txt` | 1.43.118 | Apache-2.0 | Model-stage Job |
+| [colorama](https://pypi.org/project/colorama/) | `requirements-test.txt` | 0.4.6 | BSD-3-Clause | test suites (pytest, Windows only) |
+| [defusedxml](https://pypi.org/project/defusedxml/) | `requirements-test.txt` | 0.7.1 | PSF-2.0 | test suites: the XML parser of `tests/publish/lib_xml.py`. Python Software Foundation License Version 2 (its LICENSE file; metadata `License: PSFL`) |
+| [huggingface_hub](https://pypi.org/project/huggingface-hub/) | `tools/stage_model/requirements-cluster.txt` | 2.3.0 | Apache-2.0 | Model-stage Job |
+| [iniconfig](https://pypi.org/project/iniconfig/) | `requirements-test.txt` | 2.3.1 | MIT | test suites (pytest) |
+| [jsonschema](https://pypi.org/project/jsonschema/) | `requirements-test.txt` | 4.26.0 | MIT | test suites |
+| [jsonschema-specifications](https://pypi.org/project/jsonschema-specifications/) | `requirements-test.txt` | 2025.9.1 | MIT | test suites (jsonschema) |
+| [packaging](https://pypi.org/project/packaging/) | `requirements-test.txt` | 26.3 | Apache-2.0 OR BSD-2-Clause | test suites (pytest) |
+| [pluggy](https://pypi.org/project/pluggy/) | `requirements-test.txt` | 1.7.0 | MIT | test suites (pytest) |
+| [pygments](https://pypi.org/project/pygments/) | `requirements-test.txt` | 2.21.0 | BSD-2-Clause | test suites (pytest) |
+| [pytest](https://pypi.org/project/pytest/) | `requirements-test.txt` | 9.1.1 | MIT | test suites |
+| [PyYAML](https://pypi.org/project/PyYAML/) | `requirements-test.txt` | 6.0.3 | MIT | test suites |
+| [referencing](https://pypi.org/project/referencing/) | `requirements-test.txt` | 0.37.0 | MIT | test suites (jsonschema) |
+| [rpds-py](https://pypi.org/project/rpds-py/) | `requirements-test.txt` | 2026.9.1 | MIT | test suites (jsonschema, referencing) |
+| [typing-extensions](https://pypi.org/project/typing-extensions/) | `requirements-test.txt` | 4.16.0 | PSF-2.0 | test suites (referencing, Python below 3.13) |
 
 ### Models
 

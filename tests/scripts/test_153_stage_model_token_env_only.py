@@ -1,6 +1,6 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
-"""Guard: ``scripts/10-stage-model.sh`` reads HF_TOKEN from the process environment ONLY.
+"""Guard: ``scripts/stage-model.sh`` reads HF_TOKEN from the process environment ONLY.
 
 ``manifests/config/platform.env`` is generated and overwritten by ``scripts/gen_env.py`` and may be shared or committed
 by mistake, so a token found there must never reach the cluster.  The docs already say "export it in the shell".

@@ -55,9 +55,9 @@ def test_script_passes_shellcheck(name: str) -> None:
 
 # ----------------------------------------------------------------------------- what scripts/ holds
 KEPT_SCRIPTS = {
-    "10-stage-model.sh",
-    "11-prefetch.sh",
-    "90-teardown.sh",
+    "stage-model.sh",
+    "prefetch.sh",
+    "teardown.sh",
     "gen_env.py",
     "export-public.sh",      # maintainer tooling for the public export (kept internal, not shipped)
     "export-allowlist.txt",  # the allowlist read by export-public.sh

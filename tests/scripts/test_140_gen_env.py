@@ -73,7 +73,7 @@ def platform_env(**over: str) -> dict[str, str]:
         "MODEL_BUCKET": f"demo-models-{ACCT}-use2",
         "RESULTS_BUCKET": f"demo-results-{ACCT}-use2",
         "GPU_NODEPOOL": "gpu-b200-cb",
-        "GPU_POOLS": "gpu-b200-cb:8:8",  # terraform/cluster/outputs.tf always writes it (read by 90-teardown.sh)
+        "GPU_POOLS": "gpu-b200-cb:8:8",  # terraform/cluster/outputs.tf always writes it (read by teardown.sh)
         "GPU_INSTANCE_TYPES": "p6-b200.48xlarge",
         "GPU_PRODUCT": "NVIDIA-B200",
         "GPU_CAPACITY_TYPE": "capacity-block",

@@ -11,7 +11,7 @@ Contract
 * ``manifests/config/platform.env`` is the single source: ``KEY=VALUE`` lines (``#`` comments), uppercase keys,
   no quotes/spaces/``$`` (so ``terraform output -raw`` can emit it).  Required keys: ``AWS_ACCOUNT_ID``,
   ``AWS_REGION``, ``MODEL_BUCKET``, ``RESULTS_BUCKET``.  Extra keys are allowed.
-* The values reach the scripts because ``scripts/lib/common.sh`` reads the same file; ``scripts/11-prefetch.sh``
+* The values reach the scripts because ``scripts/lib/common.sh`` reads the same file; ``scripts/prefetch.sh``
   sets them on the prefetch Job with ``kubectl set env --local`` (the Job itself carries placeholders).
 * No ``eu-west-3`` / ``euw3`` / 12-digit account id / ECR host / bucket literal / any region literal anywhere in
   ``manifests/`` or ``scripts/`` except ``manifests/config/platform.env``.  The exception list is EMPTY on purpose:
@@ -123,7 +123,7 @@ def test_config_holds_the_placeholder_deployment() -> None:
 
 # ----------------------------------------------------------------------------- nothing outside the config
 def test_tree_to_scan_exists() -> None:
-    assert [p for p in _tree_files() if p.name == "11-prefetch.sh"] and [p for p in _tree_files() if p.suffix == ".yaml"]
+    assert [p for p in _tree_files() if p.name == "prefetch.sh"] and [p for p in _tree_files() if p.suffix == ".yaml"]
 
 
 @pytest.mark.parametrize(
@@ -184,7 +184,7 @@ def test_common_sh_reads_the_same_config_file() -> None:
 
 
 def _prefetch(tmp: Path, *args: str, env: dict[str, str] | None = None) -> list[str]:
-    res = _sandbox(tmp).run("11-prefetch.sh", *args, env={**KUBE_ENV, **(env or {})})
+    res = _sandbox(tmp).run("prefetch.sh", *args, env={**KUBE_ENV, **(env or {})})
     assert res.rc == 0, res.stdout + res.stderr
     calls = [c for c in res.kubectl_calls() if "set" in c["argv"] and "env" in c["argv"]]
     assert calls, "no `kubectl set env` call carrying the Job parameters"

@@ -2,8 +2,8 @@
 # shellcheck source-path=SCRIPTDIR
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
-# 90-teardown.sh [--yes] [--from-terraform] [--pool gpu-<name>]... [--timeout SECONDS] [--destroy-cluster]
-# 90-teardown.sh --after-destroy [--from-terraform] [--empty-models] [--yes]
+# teardown.sh [--yes] [--from-terraform] [--pool gpu-<name>]... [--timeout SECONDS] [--destroy-cluster]
+# teardown.sh --after-destroy [--from-terraform] [--empty-models] [--yes]
 #
 # The teardown order of docs/DEPLOY.md. DRY RUN by default: every command is printed and none is
 # run (not even a read); --yes executes.

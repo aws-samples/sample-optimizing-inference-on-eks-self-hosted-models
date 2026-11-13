@@ -74,7 +74,7 @@ def test_project_name_default_is_the_same_in_both_stacks() -> None:
 
 
 PART_OF_FILES = (
-    "manifests/node-ops/job-model-prefetch.yaml", "manifests/node-ops/pod-ephemeral-shell.yaml", "scripts/10-stage-model.sh",
+    "manifests/node-ops/job-model-prefetch.yaml", "manifests/node-ops/pod-ephemeral-shell.yaml", "scripts/stage-model.sh",
 )
 
 

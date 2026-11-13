@@ -97,7 +97,7 @@ A NodeClass that selects a reservation turns off the automatic use of open ODCRs
 1. **Bootstrap.** `cd bootstrap && cp terraform.tfvars.example terraform.tfvars`, set the same region and `project_name` as the cluster (and the same `cluster_name`, if you set it), then `terraform init && terraform apply`.
 2. **Cluster.** `cd ../cluster && cp terraform.tfvars.example terraform.tfvars` and fill it in (`runtime_image` is already the public image of `versions.env`), then `terraform init && terraform apply`. Run the `configure_kubectl` output.
 3. **Generate the env.** `python3 scripts/gen_env.py` from the repo root. It reads `terraform output -json` and writes `manifests/config/platform.env` (read by the scripts), gitignored. See below.
-4. **Stage and prefetch the weights.** `scripts/10-stage-model.sh` (Hugging Face to S3), then `scripts/11-prefetch.sh` (S3 to the GPU node); see `docs/DEPLOY.md`.
+4. **Stage and prefetch the weights.** `scripts/stage-model.sh` (Hugging Face to S3), then `scripts/prefetch.sh` (S3 to the GPU node); see `docs/DEPLOY.md`.
 5. **Deploy a cell.** `kubectl --context <cluster> apply --server-side -f examples/00-baseline/manifest.yaml`, then the other folders of `examples/`.
 
 ## Generated env (`scripts/gen_env.py`)
@@ -152,7 +152,7 @@ aws resourcegroupstaggingapi get-resources --region <region> --tag-filters Key=e
 
 That listing also holds instances that ended a short time ago: check the state of each one with `aws ec2 describe-instances --instance-ids <id>`. The volume ID of the Prometheus volume is in `kubectl get pv -o custom-columns=CLAIM:.spec.claimRef.name,VOLUME:.spec.csi.volumeHandle`.
 
-Terraform does not merge the stack tags into the NodeClass: a change of the NodeClass `tags` marks every node of that NodeClass as drifted, and Auto Mode replaces them: the GPU workers restart on a new node, whose NVMe needs the weights prefetched again (`scripts/11-prefetch.sh`). On `cpu-demo` and the reserved GPU pools, whose disruption budget is `0`, the drifted nodes stay until they expire or you delete their NodeClaims.
+Terraform does not merge the stack tags into the NodeClass: a change of the NodeClass `tags` marks every node of that NodeClass as drifted, and Auto Mode replaces them: the GPU workers restart on a new node, whose NVMe needs the weights prefetched again (`scripts/prefetch.sh`). On `cpu-demo` and the reserved GPU pools, whose disruption budget is `0`, the drifted nodes stay until they expire or you delete their NodeClaims.
 
 ## Teardown order
 
@@ -161,4 +161,4 @@ Terraform does not merge the stack tags into the NodeClass: a change of the Node
 3. `terraform destroy` in `cluster/`.
 4. `terraform destroy` in `bootstrap/`, only if you no longer need the weights and results. The buckets have `force_destroy = false`, so empty them first. The results bucket is versioned, so delete its versions too.
 
-After a failed or partial apply of `cluster/`, fix the error and re-run the apply if you can. To tear the partial stack down instead, keep the same order: `scripts/90-teardown.sh` finds no generated env file then, so pass `--from-terraform` and it reads the cluster name, the region, the GPU pools and the bucket names from `terraform output -json`. See [After a failed or partial apply](../docs/DEPLOY.md#after-a-failed-or-partial-apply) in docs/DEPLOY.md.
+After a failed or partial apply of `cluster/`, fix the error and re-run the apply if you can. To tear the partial stack down instead, keep the same order: `scripts/teardown.sh` finds no generated env file then, so pass `--from-terraform` and it reads the cluster name, the region, the GPU pools and the bucket names from `terraform output -json`. See [After a failed or partial apply](../docs/DEPLOY.md#after-a-failed-or-partial-apply) in docs/DEPLOY.md.

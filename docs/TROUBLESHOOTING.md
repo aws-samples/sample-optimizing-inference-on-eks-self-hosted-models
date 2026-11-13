@@ -95,7 +95,7 @@ again after every later apply.
 If `gen_env.py` refuses with `terraform output platform_env ... missing` (the message lists every missing output), the
 last terraform apply of `terraform/cluster` failed or stopped before it created those outputs: the cluster can be up, but
 no env file is written, so the scripts cannot run. Read the errors of that apply, fix them and
-re-run it. To tear the partial stack down instead, run `scripts/90-teardown.sh --from-terraform`: it reads the values
+re-run it. To tear the partial stack down instead, run `scripts/teardown.sh --from-terraform`: it reads the values
 from the terraform outputs ([DEPLOY.md](DEPLOY.md#teardown)).
 
 ### Pods stay Pending on another GPU shape
@@ -157,14 +157,14 @@ interface per pod. Apply a PD example from `examples/<folder>/manifest.yaml` (fo
 
 ## Model staging exit codes
 
-When the Job fails, `scripts/10-stage-model.sh` stops and prints the `kubectl logs` command of the Job. The log line says
+When the Job fails, `scripts/stage-model.sh` stops and prints the `kubectl logs` command of the Job. The log line says
 what happened, and the exit code of the Job's container (`EXIT_*` in `tools/stage_model/stage_model.py`) is shown as
 `Exit Code` by `kubectl -n node-ops describe pods -l job-name=model-stage`. The Job does not retry codes 2 to 5.
 
 | Exit | Meaning | Fix |
 |---|---|---|
 | `2` | Configuration error: a malformed `MODEL_ID`, `MODEL_REVISION`, `MODEL_S3_URI` or `HF_TOKEN` | Fix the value in the tfvars, apply, run `gen_env.py` again; for the token, export a valid one. |
-| `3` | Gated model and no token: `HF_TOKEN` is not set | Accept the license on the model page, then `export HF_TOKEN=<read token>` in the shell that runs `scripts/10-stage-model.sh` (not in `platform.env`: `gen_env.py` overwrites it). |
+| `3` | Gated model and no token: `HF_TOKEN` is not set | Accept the license on the model page, then `export HF_TOKEN=<read token>` in the shell that runs `scripts/stage-model.sh` (not in `platform.env`: `gen_env.py` overwrites it). |
 | `4` | Access denied: Hugging Face refused the token (HTTP 401 or 403) | Accept the license with the account that owns the token (some models wait for the author's approval); use a valid read token. |
 | `5` | Not found: wrong model or revision (HTTP 404), or no weights in the repository | Check `model_id` and `model_revision` (a commit SHA) on the model page. |
 | `6` | Verify failed: a file size or sha256 differs from what the Hub lists | Run the script again; the files already in S3 are kept. |

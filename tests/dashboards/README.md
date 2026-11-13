@@ -1,6 +1,6 @@
 # Dashboards test contract
 
-Run from the repository root: `uv run --with-requirements tests/requirements-test.txt pytest tests/dashboards -v`
+Run from the repository root: `uv run --with-requirements requirements-test.txt pytest tests/dashboards -v`
 Needs the Dynamo checkout at `../dynamo` (override with `DYNAMO_REPO`) to read tag `v1.6.1` via `git show`.
 
 ## Required layout

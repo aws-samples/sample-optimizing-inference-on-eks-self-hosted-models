@@ -24,17 +24,17 @@ The staging tool carries its own suite: `tools/stage_model/tests`.
 From the repository root, one suite at a time:
 
 ```bash
-uv run --with-requirements tests/requirements-test.txt pytest tests/manifests -q
-uv run --with-requirements tests/requirements-test.txt pytest tests/scripts -q
-uv run --with-requirements tests/requirements-test.txt pytest tests/terraform -q
-uv run --with-requirements tests/requirements-test.txt pytest tests/publish -q
-uv run --with-requirements tests/requirements-test.txt pytest tests/dashboards -q
+uv run --with-requirements requirements-test.txt pytest tests/manifests -q
+uv run --with-requirements requirements-test.txt pytest tests/scripts -q
+uv run --with-requirements requirements-test.txt pytest tests/terraform -q
+uv run --with-requirements requirements-test.txt pytest tests/publish -q
+uv run --with-requirements requirements-test.txt pytest tests/dashboards -q
 uv run --with pytest==9.1.1 --with huggingface_hub==2.3.0 --with boto3==1.43.118 pytest tools/stage_model/tests -q
 ```
 
-`tests/requirements-test.txt` pins pytest, PyYAML, jsonschema, defusedxml and every package they pull in to the exact
+`requirements-test.txt` pins pytest, PyYAML, jsonschema, defusedxml and every package they pull in to the exact
 versions the suites are tested with. The `tools/stage_model` command pins its packages inline: pytest at the version of that file,
-huggingface_hub and boto3 at those of `tools/stage_model/requirements.txt`.
+huggingface_hub and boto3 at those of `tools/stage_model/requirements-cluster.txt`.
 
 Run the suites sequentially, not in parallel: each session writes `manifests/config/platform.env` from
 `manifests/config/platform.env.example` when the file is absent and deletes it at the end, so a second session running
@@ -71,7 +71,7 @@ or move the generated file aside first.
 - New tests start child processes through `tests/lib_proc.py` (`run`, `start`), not `subprocess`: the command is a
   list of `str` and never goes through a shell. XML is parsed with
   `tests/publish/lib_xml.py`, which parses with defusedxml (pinned in
-  `tests/requirements-test.txt`) and refuses entity declarations; no test
+  `requirements-test.txt`) and refuses entity declarations; no test
   imports the standard library `xml` package.
 - Files that would otherwise carry a forbidden literal (an e-mail, a personal path) build it from fragments, as
   `tests/publish/sanitize_scan.py` does. An account ID is the exception: a test that needs one uses the placeholder
